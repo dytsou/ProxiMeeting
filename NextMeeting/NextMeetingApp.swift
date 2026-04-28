@@ -34,6 +34,8 @@ class StatusBarController: NSObject {
     private var sizeObservation: NSKeyValueObservation?
     private var dismissPopoverObserver: NSObjectProtocol?
     private var wakeObserver: NSObjectProtocol?
+    private var upgradeRelaunchTimer: Timer?
+    private var hasScheduledRelaunch = false
 
     init(manager: CalendarManager, calendarSelection: CalendarSelectionStore) {
         calendarSelectionStore = calendarSelection
@@ -104,13 +106,24 @@ class StatusBarController: NSObject {
             guard let self else { return }
             Task { @MainActor in
                 await self.updateChecker.checkIfNeeded()
+                self.checkForOnDiskUpgradeAndRelaunchIfNeeded()
             }
         }
 
         updateChecker.start()
+
+        // Homebrew upgrades replace the app on disk while it is running.
+        // If the on-disk bundle version changes, relaunch to the new version automatically.
+        upgradeRelaunchTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.checkForOnDiskUpgradeAndRelaunchIfNeeded()
+            }
+        }
     }
 
     deinit {
+        upgradeRelaunchTimer?.invalidate()
+        upgradeRelaunchTimer = nil
         if let dismissPopoverObserver {
             NotificationCenter.default.removeObserver(dismissPopoverObserver)
         }
@@ -173,5 +186,34 @@ class StatusBarController: NSObject {
             attributes: [.font: NSFont.systemFont(ofSize: appearanceStore.menuBarTitleFontSize, weight: .semibold)]
         ))
         button.attributedTitle = str
+    }
+
+    private func checkForOnDiskUpgradeAndRelaunchIfNeeded() {
+        guard !hasScheduledRelaunch else { return }
+
+        let runningRaw =
+            (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "0"
+        let onDiskRaw = Self.onDiskAppVersionString(bundleURL: Bundle.main.bundleURL) ?? runningRaw
+
+        guard runningRaw != onDiskRaw else { return }
+
+        hasScheduledRelaunch = true
+        AppDebug.log("Detected on-disk upgrade: running=\(runningRaw), onDisk=\(onDiskRaw). Relaunching.")
+
+        let bundleURL = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, _ in }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private static func onDiskAppVersionString(bundleURL: URL) -> String? {
+        let plistURL = bundleURL.appendingPathComponent("Contents/Info.plist")
+        guard let dict = NSDictionary(contentsOf: plistURL) as? [String: Any] else { return nil }
+        return (dict["CFBundleShortVersionString"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

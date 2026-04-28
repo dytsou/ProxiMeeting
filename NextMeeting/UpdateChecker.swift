@@ -4,6 +4,7 @@ private enum UpdateDefaultsKeys {
     static let lastUpdateCheckDate = "updates.lastUpdateCheckDate"
     static let availableVersion = "updates.availableVersion"
     static let availableDownloadURL = "updates.availableDownloadURL"
+    static let lastSeenAppVersion = "updates.lastSeenAppVersion"
 }
 
 private struct GitHubLatestRelease: Decodable {
@@ -23,6 +24,9 @@ final class UpdateChecker: ObservableObject {
 
     init() {
         let shouldAllowDevOverrides = AppDebug.isEnabled
+        let currentRaw =
+            (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            ?? "0"
 
         // In normal mode, we still load the last known "update available" state so the user
         // can upgrade immediately (e.g., via Homebrew) without waiting for the next poll.
@@ -37,6 +41,23 @@ final class UpdateChecker: ObservableObject {
         if shouldAllowDevOverrides {
             // Dev mode may overwrite the above values.
             return
+        }
+
+        // If the installed app version changes (e.g. Homebrew upgraded the app), do not keep
+        // showing a stale "update available" banner from a previous run.
+        let lastSeen = defaults.string(forKey: UpdateDefaultsKeys.lastSeenAppVersion)
+        if lastSeen != currentRaw {
+            defaults.set(currentRaw, forKey: UpdateDefaultsKeys.lastSeenAppVersion)
+            defaults.removeObject(forKey: UpdateDefaultsKeys.lastUpdateCheckDate)
+        }
+
+        // If we already satisfy the persisted available version, clear it immediately so the UI
+        // doesn't confuse users who upgraded and relaunched on the same day.
+        if let persisted = defaults.string(forKey: UpdateDefaultsKeys.availableVersion),
+           let currentVersion = SemVer(currentRaw),
+           let persistedVersion = SemVer(persisted),
+           currentVersion >= persistedVersion {
+            clearAvailableUpdate()
         }
     }
 

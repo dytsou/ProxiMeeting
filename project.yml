@@ -29,6 +29,10 @@ targets:
           - zh-Hant
         NSCalendarsUsageDescription: "NextMeeting needs calendar access to display your upcoming meetings."
         NSCalendarsFullAccessUsageDescription: "NextMeeting needs full calendar access to display your upcoming meetings."
+        CFBundleURLTypes:
+          - CFBundleURLName: com.nextmeeting.app.deeplink
+            CFBundleURLSchemes:
+              - nextmeeting
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: com.nextmeeting.app
       SWIFT_VERSION: "5.9"

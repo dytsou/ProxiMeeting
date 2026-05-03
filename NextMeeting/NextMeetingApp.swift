@@ -2,14 +2,59 @@ import SwiftUI
 import AppKit
 import Combine
 
+/// Handles `nextmeeting://…` URLs (Raycast extension, scripts, Automation).
+final class NextMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
+    weak var statusBarController: StatusBarController?
+    weak var calendarManager: CalendarManager?
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { @MainActor in
+            handleOpen(urls)
+        }
+    }
+
+    @MainActor
+    private func handleOpen(_ urls: [URL]) {
+        guard let calendarManager, let statusBarController else { return }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        for url in urls {
+            guard url.scheme?.caseInsensitiveCompare("nextmeeting") == .orderedSame else { continue }
+
+            let host = (url.host ?? "").lowercased()
+
+            switch host {
+            case "refresh":
+                calendarManager.fetchMeetings()
+                AppDebug.log("DeepLink: refresh")
+            case "open-popover":
+                statusBarController.showPopoverAnchoredAtStatusItem()
+                AppDebug.log("DeepLink: open-popover")
+            case "open-preferences":
+                statusBarController.showPopoverAnchoredAtStatusItem()
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .nextMeetingOpenJoinSettings, object: nil)
+                }
+                AppDebug.log("DeepLink: open-preferences")
+            default:
+                AppDebug.log("DeepLink: ignored URL \(url.absoluteString)")
+            }
+        }
+    }
+}
+
 @main
 struct NextMeetingApp: App {
+    @NSApplicationDelegateAdaptor(NextMeetingApplicationDelegate.self) private var appDelegate
     private let statusBarController: StatusBarController
 
     init() {
         let calendarSelection = CalendarSelectionStore()
         let manager = CalendarManager(calendarSelection: calendarSelection)
         statusBarController = StatusBarController(manager: manager, calendarSelection: calendarSelection)
+        appDelegate.calendarManager = manager
+        appDelegate.statusBarController = statusBarController
     }
 
     // MenuBarExtra is no longer used — popover is managed by StatusBarController
@@ -143,6 +188,17 @@ class StatusBarController: NSObject {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+
+    /// Opens the transient popover (used by Raycast commands and `nextmeeting://open-popover`).
+    func showPopoverAnchoredAtStatusItem() {
+        guard let button = statusItem.button else { return }
+        guard !popover.isShown else {
+            popover.contentViewController?.view.window?.makeKey()
+            return
+        }
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
     func update(meeting: Meeting?) {

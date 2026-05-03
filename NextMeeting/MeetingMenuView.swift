@@ -5,6 +5,8 @@ import EventKit
 extension Notification.Name {
     /// Posted before opening a meeting in the browser so the menu popover can dismiss (browser preference or native fallback).
     static let nextMeetingDismissPopover = Notification.Name("NextMeetingDismissPopover")
+    /// Opens the Join / Settings sheet (Raycast extension and `nextmeeting://open-preferences`).
+    static let nextMeetingOpenJoinSettings = Notification.Name("NextMeetingOpenJoinSettings")
 }
 
 // MARK: - Root Menu View
@@ -36,6 +38,9 @@ struct MeetingMenuView: View {
         .environmentObject(joinPreferences)
         .environmentObject(calendarSelection)
         .onAppear { selectedTab = defaultTab }
+        .onReceive(NotificationCenter.default.publisher(for: .nextMeetingOpenJoinSettings)) { _ in
+            showJoinSettings = true
+        }
         .sheet(isPresented: $showJoinSettings) {
             JoinSettingsView()
                 .environmentObject(joinPreferences)

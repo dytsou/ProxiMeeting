@@ -2,23 +2,56 @@ import SwiftUI
 import AppKit
 import Combine
 
+/// Shared app state installed after `applicationDidFinishLaunching` so the status item attaches with a finalized activation policy (LSUIElement + delegates).
+@MainActor
+final class ApplicationSession {
+    let calendarSelection: CalendarSelectionStore
+    let calendarManager: CalendarManager
+    private(set) var statusBarController: StatusBarController?
+
+    init() {
+        calendarSelection = CalendarSelectionStore()
+        calendarManager = CalendarManager(calendarSelection: calendarSelection)
+    }
+
+    func installStatusBarIfNeeded() {
+        guard statusBarController == nil else { return }
+        statusBarController = StatusBarController(manager: calendarManager, calendarSelection: calendarSelection)
+        AppDebug.log("Installed NSStatusItem (application session ready)")
+    }
+}
+
 /// Handles `nextmeeting://…` URLs (Raycast extension, scripts, Automation).
 final class NextMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
-    weak var statusBarController: StatusBarController?
-    weak var calendarManager: CalendarManager?
+    weak var session: ApplicationSession?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Without this, merging a delegate with SwiftUI can leave policy unset such that accessory UI never shows reliably.
+        if !NSApp.setActivationPolicy(.accessory) {
+            AppDebug.log("setActivationPolicy(.accessory) returned false — menu bar tray may not appear")
+        }
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            self?.session?.installStatusBarIfNeeded()
+        }
+    }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        Task { @MainActor in
-            handleOpen(urls)
+        Task { @MainActor [weak self] in
+            self?.handleDeepLinks(urls)
         }
     }
 
     @MainActor
-    private func handleOpen(_ urls: [URL]) {
-        guard let calendarManager, let statusBarController else { return }
+    private func handleDeepLinks(_ urls: [URL]) {
+        session?.installStatusBarIfNeeded()
+        guard let session, let statusBarController = session.statusBarController else { return }
 
         NSApp.activate(ignoringOtherApps: true)
 
+        let calendarManager = session.calendarManager
         for url in urls {
             guard url.scheme?.caseInsensitiveCompare("nextmeeting") == .orderedSame else { continue }
 
@@ -47,14 +80,10 @@ final class NextMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
 @main
 struct NextMeetingApp: App {
     @NSApplicationDelegateAdaptor(NextMeetingApplicationDelegate.self) private var appDelegate
-    private let statusBarController: StatusBarController
+    private let session = ApplicationSession()
 
     init() {
-        let calendarSelection = CalendarSelectionStore()
-        let manager = CalendarManager(calendarSelection: calendarSelection)
-        statusBarController = StatusBarController(manager: manager, calendarSelection: calendarSelection)
-        appDelegate.calendarManager = manager
-        appDelegate.statusBarController = statusBarController
+        appDelegate.session = session
     }
 
     // MenuBarExtra is no longer used — popover is managed by StatusBarController
@@ -85,6 +114,7 @@ class StatusBarController: NSObject {
     init(manager: CalendarManager, calendarSelection: CalendarSelectionStore) {
         calendarSelectionStore = calendarSelection
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.isVisible = true
 
         popover = NSPopover()
         let hostingController = NSHostingController(

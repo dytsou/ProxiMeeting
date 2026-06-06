@@ -464,20 +464,15 @@ class StatusBarController: NSObject {
         icon?.isTemplate = true
 
         button.image = icon
-        button.imagePosition = .imageLeft
         button.imageScaling = .scaleProportionallyDown
 
         guard let meeting else {
-            let str = NSAttributedString(
-                string: NSLocalizedString("label.no_meeting", comment: ""),
-                attributes: [
-                    .font: NSFont.systemFont(ofSize: 10),
-                    .foregroundColor: NSColor.secondaryLabelColor
-                ]
-            )
-            button.attributedTitle = str
+            button.attributedTitle = NSAttributedString()
+            button.imagePosition = .imageOnly
             return
         }
+
+        button.imagePosition = .imageLeft
 
         let title = meeting.title.prefix(halfwidthUnits: appearanceStore.menuBarTitleLength)
         let time =

@@ -7,10 +7,14 @@ cd "$SCRIPT_DIR"
 
 bash scripts/sync-info-plist-version.sh
 
-APP_NAME="NextMeeting"
-BUNDLE_ID="com.nextmeeting.app"
+APP_NAME="${APP_NAME:-ProxiMeeting}"
+if [ "$APP_NAME" = "ProxiMeeting" ]; then
+	BUNDLE_ID="com.proximeeting.app"
+else
+	BUNDLE_ID="com.proximeeting.app.traytest"
+fi
 APP="${APP_NAME}.app"
-SRC="NextMeeting"
+SRC="ProxiMeeting"
 
 # ── Check for Swift compiler ──────────────────────────────────────────────────
 if ! command -v swiftc &> /dev/null; then
@@ -39,7 +43,7 @@ SWIFT_SRCS=(
     "$SRC/AppDebug.swift"
     "$SRC/String+HalfwidthPrefix.swift"
     "$SRC/MeetingMenuView.swift"
-    "$SRC/NextMeetingApp.swift"
+    "$SRC/ProxiMeetingApp.swift"
     "$SRC/UpdateChecker.swift"
 )
 for f in "${SWIFT_SRCS[@]}"; do
@@ -69,6 +73,11 @@ sed -e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/$BUNDLE_ID/g" \
     -e "s/\$(DEVELOPMENT_LANGUAGE)/en/g" \
     "$SRC/Info.plist" > "$APP/Contents/Info.plist"
 
+if [ "$APP_NAME" != "ProxiMeeting" ]; then
+	echo "==> Alternate build: stripping URL scheme (avoid duplicate proximeeting:// handlers with shipped app)."
+	/usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$APP/Contents/Info.plist" 2>/dev/null || true
+fi
+
 # Required by macOS for all .app bundles
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
@@ -87,15 +96,15 @@ if [[ -f "$ASSET/Contents.json" ]]; then
 	fi
 	rm -rf "$WORK"
 else
-	echo "Warning: missing $ASSET — restore NextMeeting/Assets.xcassets/AppIcon.appiconset from the repo."
+	echo "Warning: missing $ASSET — restore ProxiMeeting/Assets.xcassets/AppIcon.appiconset from the repo."
 fi
 
 echo "==> Signing (ad-hoc)..."
 ENT_TMP="$(mktemp)"
-if plutil -convert xml1 -o "$ENT_TMP" "$SRC/NextMeeting.entitlements" >/dev/null 2>&1; then
+if plutil -convert xml1 -o "$ENT_TMP" "$SRC/ProxiMeeting.entitlements" >/dev/null 2>&1; then
 	codesign --force --deep --sign - --entitlements "$ENT_TMP" "$APP"
 else
-	codesign --force --deep --sign - --entitlements "$SRC/NextMeeting.entitlements" "$APP"
+	codesign --force --deep --sign - --entitlements "$SRC/ProxiMeeting.entitlements" "$APP"
 fi
 rm -f "$ENT_TMP"
 
@@ -108,6 +117,8 @@ read -r -p "Install to /Applications? [y/N] " answer
 if [[ "$answer" =~ ^[Yy]$ ]]; then
     echo "==> Installing to /Applications..."
     pkill -x "$APP_NAME" 2>/dev/null || true
+    pkill -x ProxiMeeting 2>/dev/null || true
+    pkill -x MeetingTrayTest 2>/dev/null || true
     cp -r "$APP" /Applications/
     echo "Installed. Launching..."
     open "/Applications/$APP_NAME.app"

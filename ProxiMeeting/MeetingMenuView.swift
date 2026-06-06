@@ -4,7 +4,9 @@ import EventKit
 
 extension Notification.Name {
     /// Posted before opening a meeting in the browser so the menu popover can dismiss (browser preference or native fallback).
-    static let nextMeetingDismissPopover = Notification.Name("NextMeetingDismissPopover")
+    static let proxiMeetingDismissPopover = Notification.Name("ProxiMeetingDismissPopover")
+    /// Opens the Join / Settings sheet (Raycast extension and `proximeeting://open-preferences`).
+    static let proxiMeetingOpenJoinSettings = Notification.Name("ProxiMeetingOpenJoinSettings")
 }
 
 // MARK: - Root Menu View
@@ -36,6 +38,9 @@ struct MeetingMenuView: View {
         .environmentObject(joinPreferences)
         .environmentObject(calendarSelection)
         .onAppear { selectedTab = defaultTab }
+        .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingOpenJoinSettings)) { _ in
+            showJoinSettings = true
+        }
         .sheet(isPresented: $showJoinSettings) {
             JoinSettingsView()
                 .environmentObject(joinPreferences)
@@ -237,11 +242,11 @@ private func openMeetingJoinURL(url: URL, mode: JoinOpenMode) {
     switch mode {
     case .browser:
         let target = url.browserFallbackJoinURL() ?? url
-        NotificationCenter.default.post(name: .nextMeetingDismissPopover, object: nil)
+        NotificationCenter.default.post(name: .proxiMeetingDismissPopover, object: nil)
         _ = NSWorkspace.shared.open(target)
     case .native:
         if NSWorkspace.shared.open(url) { return }
-        NotificationCenter.default.post(name: .nextMeetingDismissPopover, object: nil)
+        NotificationCenter.default.post(name: .proxiMeetingDismissPopover, object: nil)
         guard let fallback = url.browserFallbackJoinURL() else { return }
         _ = NSWorkspace.shared.open(fallback)
     }
@@ -833,7 +838,7 @@ private struct AppearancePreviewCard: View {
 // MARK: - Footer
 
 private enum FooterLinks {
-    static let license = URL(string: "https://github.com/dytsou/NextMeeting/blob/main/LICENSE")!
+    static let license = URL(string: "https://github.com/dytsou/ProxiMeeting/blob/main/LICENSE")!
 }
 
 private struct FooterView: View {
@@ -843,7 +848,7 @@ private struct FooterView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let url = updateChecker.availableDownloadURL, let version = updateChecker.availableVersion {
                 Button {
-                    NotificationCenter.default.post(name: .nextMeetingDismissPopover, object: nil)
+                    NotificationCenter.default.post(name: .proxiMeetingDismissPopover, object: nil)
                     _ = NSWorkspace.shared.open(url)
                 } label: {
                     HStack(spacing: 6) {

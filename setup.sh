@@ -16,7 +16,7 @@ echo "==> Generating Xcode project..."
 xcodegen generate
 
 echo "==> Opening Xcode project..."
-open NextMeeting.xcodeproj
+open ProxiMeeting.xcodeproj
 
 echo ""
 echo "Build steps:"

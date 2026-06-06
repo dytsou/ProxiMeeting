@@ -1,39 +1,43 @@
-name: NextMeeting
+name: ProxiMeeting
 
 options:
-  bundleIdPrefix: com.nextmeeting
+  bundleIdPrefix: com.proximeeting
   deploymentTarget:
     macOS: "13.0"
   xcodeVersion: "15"
 
 targets:
-  NextMeeting:
+  ProxiMeeting:
     type: application
     platform: macOS
     deploymentTarget: "13.0"
     sources:
-      - path: NextMeeting
+      - path: ProxiMeeting
         excludes:
           - "**/*.entitlements"
           - "Info.plist"
           - "**/Assets.xcassets/**"
     resources:
-      - path: NextMeeting/Assets.xcassets
+      - path: ProxiMeeting/Assets.xcassets
     info:
-      path: NextMeeting/Info.plist
+      path: ProxiMeeting/Info.plist
       properties:
         LSUIElement: true
-        CFBundleDisplayName: NextMeeting
+        CFBundleDisplayName: ProxiMeeting
         CFBundleLocalizations:
           - en
           - zh-Hant
-        NSCalendarsUsageDescription: "NextMeeting needs calendar access to display your upcoming meetings."
-        NSCalendarsFullAccessUsageDescription: "NextMeeting needs full calendar access to display your upcoming meetings."
+        NSCalendarsUsageDescription: "ProxiMeeting needs calendar access to display your upcoming meetings."
+        NSCalendarsFullAccessUsageDescription: "ProxiMeeting needs full calendar access to display your upcoming meetings."
+        CFBundleURLTypes:
+          - CFBundleURLName: com.proximeeting.app.deeplink
+            CFBundleURLSchemes:
+              - proximeeting
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: com.nextmeeting.app
+      PRODUCT_BUNDLE_IDENTIFIER: com.proximeeting.app
       SWIFT_VERSION: "5.9"
       MACOSX_DEPLOYMENT_TARGET: "13.0"
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       ENABLE_HARDENED_RUNTIME: YES
-      CODE_SIGN_ENTITLEMENTS: NextMeeting/NextMeeting.entitlements
+      CODE_SIGN_ENTITLEMENTS: ProxiMeeting/ProxiMeeting.entitlements
       CODE_SIGN_STYLE: Automatic

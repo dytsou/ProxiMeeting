@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Only NextMeeting key in the agent — tap updates use TAP_DEPLOY_KEY via GIT_SSH_COMMAND (see Update Homebrew tap cask).
+      # Only ProxiMeeting key in the agent — tap updates use TAP_DEPLOY_KEY via GIT_SSH_COMMAND (see Update Homebrew tap cask).
       - name: Setup SSH deploy key
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: webfactory/ssh-agent@v0.10.0
@@ -47,10 +47,10 @@ jobs:
       - name: Sync Info.plist version from package.json
         id: sync-info-plist-version
         run: |
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.value }}" NextMeeting/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.value }}" NextMeeting/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.version.outputs.value }}" ProxiMeeting/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.version.outputs.value }}" ProxiMeeting/Info.plist
           # Use git diff inside `if` so a non-zero exit (file changed) does not fail the step under bash -e
-          if git diff --quiet NextMeeting/Info.plist; then
+          if git diff --quiet ProxiMeeting/Info.plist; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
             echo "changed=true" >> $GITHUB_OUTPUT
@@ -62,7 +62,7 @@ jobs:
         run: |
           git config user.name "dytsou"
           git config user.email "dytsou@gmail.com"
-          git add NextMeeting/Info.plist
+          git add ProxiMeeting/Info.plist
           git commit --amend --no-edit
           git push --force-with-lease origin "HEAD:${{ github.ref_name }}"
 
@@ -82,18 +82,18 @@ jobs:
         run: make build
 
       - name: Zip app
-        run: zip -r NextMeeting.zip NextMeeting.app
+        run: zip -r ProxiMeeting.zip ProxiMeeting.app
 
-      - name: SHA256 of NextMeeting.zip
+      - name: SHA256 of ProxiMeeting.zip
         id: artifact
-        run: echo "sha256=$(shasum -a 256 NextMeeting.zip | awk '{print $1}')" >>
+        run: echo "sha256=$(shasum -a 256 ProxiMeeting.zip | awk '{print $1}')" >>
           $GITHUB_OUTPUT
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: NextMeeting-${{ steps.version.outputs.value }}.zip
-          path: NextMeeting.zip
+          name: ProxiMeeting-${{ steps.version.outputs.value }}.zip
+          path: ProxiMeeting.zip
 
       - name: Create tag
         if: github.ref == 'refs/heads/main' && steps.tag_check.outputs.exists == 'false'
@@ -108,26 +108,26 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.value }}
-          files: NextMeeting.zip
+          files: ProxiMeeting.zip
           generate_release_notes: true
           append_body: true
           body: |
             ## Upgrade with Homebrew
 
             ```bash
-            brew upgrade --cask nextmeeting
+            brew upgrade --cask proximeeting
             ```
 
             ### Troubleshooting
 
             ```bash
             brew update
-            brew upgrade --cask nextmeeting --verbose
-            brew reinstall --cask nextmeeting
+            brew upgrade --cask proximeeting --verbose
+            brew reinstall --cask proximeeting
             brew doctor
             ```
 
-      # TAP_DEPLOY_KEY must be the private key whose public key is a write-enabled Deploy key on dytsou/homebrew-nextmeeting only.
+      # TAP_DEPLOY_KEY must be the private key whose public key is a write-enabled Deploy key on dytsou/homebrew-proximeeting only.
       # Use GIT_SSH_COMMAND so Git does not pick DEPLOY_KEY from the agent (wrong repo → "denied to deploy key").
       - name: Update Homebrew tap cask
         if: github.ref == 'refs/heads/main' && steps.tag_check.outputs.exists == 'false'
@@ -138,7 +138,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${TAP_DEPLOY_KEY:-}" ]; then
-            echo "::error::Secret TAP_DEPLOY_KEY is not set (add the homebrew-nextmeeting deploy key private key)."
+            echo "::error::Secret TAP_DEPLOY_KEY is not set (add the homebrew-proximeeting deploy key private key)."
             exit 1
           fi
           keyfile=$(mktemp)
@@ -147,17 +147,17 @@ jobs:
           printf '%s\n' "$TAP_DEPLOY_KEY" > "$keyfile"
           export GIT_SSH_COMMAND="ssh -i ${keyfile} -o IdentitiesOnly=yes -o UserKnownHostsFile=${HOME}/.ssh/known_hosts"
           tmp=$(mktemp -d)
-          git clone --depth 1 git@github.com:dytsou/homebrew-nextmeeting.git "$tmp/tap"
-          cask="$tmp/tap/Casks/nextmeeting.rb"
+          git clone --depth 1 git@github.com:dytsou/homebrew-proximeeting.git "$tmp/tap"
+          cask="$tmp/tap/Casks/proximeeting.rb"
           perl -pi -e 's/^  version ".*"/  version "$ENV{VERSION}"/' "$cask"
           perl -pi -e 's/^  sha256 ".*"/  sha256 "$ENV{SHA256}"/' "$cask"
           cd "$tmp/tap"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Casks/nextmeeting.rb
+          git add Casks/proximeeting.rb
           if git diff --staged --quiet; then
             echo "No cask file changes; skipping commit."
             exit 0
           fi
-          git commit -m "chore: bump NextMeeting cask to ${VERSION}"
+          git commit -m "chore: bump ProxiMeeting cask to ${VERSION}"
           git push origin HEAD:main

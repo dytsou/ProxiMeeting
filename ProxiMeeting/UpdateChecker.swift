@@ -15,7 +15,7 @@ private struct GitHubLatestRelease: Decodable {
 @MainActor
 final class UpdateChecker: ObservableObject {
     private let defaults = UserDefaults.standard
-    private let releaseURL = URL(string: "https://api.github.com/repos/dytsou/NextMeeting/releases/latest")!
+    private let releaseURL = URL(string: "https://api.github.com/repos/dytsou/ProxiMeeting/releases/latest")!
 
     private var dailyTimer: Timer?
 
@@ -100,7 +100,7 @@ final class UpdateChecker: ObservableObject {
         guard let currentVersion = SemVer(current) else { return }
 
         var request = URLRequest(url: releaseURL)
-        request.setValue("NextMeeting", forHTTPHeaderField: "User-Agent")
+        request.setValue("ProxiMeeting", forHTTPHeaderField: "User-Agent")
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
 
         do {
@@ -116,7 +116,7 @@ final class UpdateChecker: ObservableObject {
                 return
             }
 
-            let downloadURL = URL(string: latest.html_url) ?? URL(string: "https://github.com/dytsou/NextMeeting/releases/latest")!
+            let downloadURL = URL(string: latest.html_url) ?? URL(string: "https://github.com/dytsou/ProxiMeeting/releases/latest")!
             setAvailableUpdate(version: latestVersion.stringValue, downloadURL: downloadURL)
         } catch {
             // Ignore transient network/decoding errors; we will retry tomorrow.
@@ -140,7 +140,7 @@ final class UpdateChecker: ObservableObject {
     private func applyDevOverridesIfNeeded() {
         guard AppDebug.isEnabled else { return }
         AppDebug.log("Forcing update link (DEV) regardless of latest release.")
-        let url = URL(string: "https://github.com/dytsou/NextMeeting/releases/latest")!
+        let url = URL(string: "https://github.com/dytsou/ProxiMeeting/releases/latest")!
         setAvailableUpdate(version: "DEV", downloadURL: url)
     }
 

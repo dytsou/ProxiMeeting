@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Set CFBundleShortVersionString and CFBundleVersion in NextMeeting/Info.plist from package.json (single source of truth).
+# Set CFBundleShortVersionString and CFBundleVersion in ProxiMeeting/Info.plist from package.json (single source of truth).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-PLIST="NextMeeting/Info.plist"
+PLIST="ProxiMeeting/Info.plist"
 if [[ ! -f "$PLIST" ]]; then
 	echo "sync-info-plist-version: missing $PLIST" >&2
 	exit 1

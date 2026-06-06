@@ -40,11 +40,11 @@ jobs:
           echo "YEAR=$YEAR" >> "$GITHUB_ENV"
           perl -pi -e 's/Copyright \(c\) \d{4}/Copyright (c) $ENV{YEAR}/' LICENSE
           for f in \
-            NextMeeting/Info.plist \
-            NextMeeting/en.lproj/Localizable.strings \
-            NextMeeting/en.lproj/InfoPlist.strings \
-            NextMeeting/zh-Hant.lproj/Localizable.strings \
-            NextMeeting/zh-Hant.lproj/InfoPlist.strings
+            ProxiMeeting/Info.plist \
+            ProxiMeeting/en.lproj/Localizable.strings \
+            ProxiMeeting/en.lproj/InfoPlist.strings \
+            ProxiMeeting/zh-Hant.lproj/Localizable.strings \
+            ProxiMeeting/zh-Hant.lproj/InfoPlist.strings
           do
             perl -pi -e 's/Copyright © \d{4}/Copyright © $ENV{YEAR}/' "$f"
           done
@@ -53,11 +53,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add LICENSE NextMeeting/Info.plist \
-            NextMeeting/en.lproj/Localizable.strings \
-            NextMeeting/en.lproj/InfoPlist.strings \
-            NextMeeting/zh-Hant.lproj/Localizable.strings \
-            NextMeeting/zh-Hant.lproj/InfoPlist.strings
+          git add LICENSE ProxiMeeting/Info.plist \
+            ProxiMeeting/en.lproj/Localizable.strings \
+            ProxiMeeting/en.lproj/InfoPlist.strings \
+            ProxiMeeting/zh-Hant.lproj/Localizable.strings \
+            ProxiMeeting/zh-Hant.lproj/InfoPlist.strings
           if git diff --staged --quiet; then
             echo "Copyright year already set to ${YEAR}; nothing to commit."
           else

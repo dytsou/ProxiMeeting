@@ -2,18 +2,18 @@
 import PackageDescription
 
 let package = Package(
-    name: "NextMeeting",
+    name: "ProxiMeeting",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "NextMeeting", targets: ["NextMeeting"])
+        .executable(name: "ProxiMeeting", targets: ["ProxiMeeting"])
     ],
     targets: [
         .executableTarget(
-            name: "NextMeeting",
-            path: "NextMeeting",
+            name: "ProxiMeeting",
+            path: "ProxiMeeting",
             exclude: [
                 "Info.plist",
-                "NextMeeting.entitlements",
+                "ProxiMeeting.entitlements",
                 "Assets.xcassets",
                 "en.lproj",
                 "zh-Hant.lproj"

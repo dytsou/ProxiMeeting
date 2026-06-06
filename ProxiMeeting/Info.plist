@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>NextMeeting</string>
+	<string>ProxiMeeting</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconFile</key>
@@ -29,10 +29,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.nextmeeting.app.deeplink</string>
+			<string>com.proximeeting.app.deeplink</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>nextmeeting</string>
+				<string>proximeeting</string>
 			</array>
 		</dict>
 	</array>
@@ -41,9 +41,9 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>NextMeeting needs full calendar access to display your upcoming meetings.</string>
+	<string>ProxiMeeting needs full calendar access to display your upcoming meetings.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>NextMeeting needs calendar access to display your upcoming meetings.</string>
+	<string>ProxiMeeting needs calendar access to display your upcoming meetings.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 dytsou</string>
 </dict>

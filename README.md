@@ -1,18 +1,18 @@
 <p align="center">
-  <img src="./NextMeeting/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="NextMeeting" width="128" height="128" />
+  <img src="./ProxiMeeting/Assets.xcassets/AppIcon.appiconset/icon_128x128.png" alt="ProxiMeeting" width="128" height="128" />
 </p>
 
-# NextMeeting
+# ProxiMeeting
 
 ![Language: Swift](https://img.shields.io/badge/Language-Swift-F05138?logo=swift&logoColor=white)
 ![macOS 13+](https://img.shields.io/badge/macOS-13%2B-000000?logo=apple&logoColor=white)
-[![Build & Release](https://github.com/dytsou/NextMeeting/actions/workflows/build.yml/badge.svg)](https://github.com/dytsou/NextMeeting/actions/workflows/build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/dytsou/NextMeeting?display_name=tag&sort=semver)](https://github.com/dytsou/NextMeeting/releases)
+[![Build & Release](https://github.com/dytsou/ProxiMeeting/actions/workflows/build.yml/badge.svg)](https://github.com/dytsou/ProxiMeeting/actions/workflows/build.yml)
+[![Latest Release](https://img.shields.io/github/v/release/dytsou/ProxiMeeting?display_name=tag&sort=semver)](https://github.com/dytsou/ProxiMeeting/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A macOS menu bar app that shows your next meeting at a glance.
 
-![Screenshot](./NextMeeting/screenshot.jpg)
+![Screenshot](./ProxiMeeting/screenshot.jpg)
 
 ## Features
 
@@ -37,29 +37,29 @@ A macOS menu bar app that shows your next meeting at a glance.
 
 ### 1. Sync Google Calendar
 
-Open **Calendar.app** → Preferences → Accounts → add your Google account. NextMeeting reads events directly from the system calendar — no API keys or OAuth required.
+Open **Calendar.app** → Preferences → Accounts → add your Google account. ProxiMeeting reads events directly from the system calendar — no API keys or OAuth required.
 
 ### 2. Install with Homebrew
 
-Install the [Homebrew tap](https://github.com/dytsou/homebrew-nextmeeting) (GUI app via Cask):
+Install the [Homebrew tap](https://github.com/dytsou/homebrew-proximeeting) (GUI app via Cask):
 
 ```bash
-brew tap dytsou/nextmeeting
-brew install --cask nextmeeting
+brew tap dytsou/proximeeting
+brew install --cask proximeeting
 ```
 
 #### Upgrade with Homebrew
 
 ```bash
-brew upgrade --cask nextmeeting
+brew upgrade --cask proximeeting
 ```
 
 If the upgrade fails, try:
 
 ```bash
 brew update
-brew upgrade --cask nextmeeting --verbose
-brew reinstall --cask nextmeeting
+brew upgrade --cask proximeeting --verbose
+brew reinstall --cask proximeeting
 brew doctor
 ```
 
@@ -84,22 +84,22 @@ If not using Homebrew, build the app manually.
 3. Build:
 
    ```bash
-   git clone https://github.com/dytsou/NextMeeting.git
-   cd NextMeeting
+   git clone https://github.com/dytsou/ProxiMeeting.git
+   cd ProxiMeeting
    ./build.sh
    ```
 
-The script compiles with `swiftc`, creates `NextMeeting.app`, and offers to install it to `/Applications`.
+The script compiles with `swiftc`, creates `ProxiMeeting.app`, and offers to install it to `/Applications`.
 
 **Option B — With Xcode** (uses xcodegen to generate the project):
 
 ```bash
-git clone https://github.com/dytsou/NextMeeting.git
-cd NextMeeting
+git clone https://github.com/dytsou/ProxiMeeting.git
+cd ProxiMeeting
 ./setup.sh
 ```
 
-`setup.sh` installs xcodegen via Homebrew if needed, generates `NextMeeting.xcodeproj`, and opens it.
+`setup.sh` installs xcodegen via Homebrew if needed, generates `ProxiMeeting.xcodeproj`, and opens it.
 
 1. Go to **Signing & Capabilities** and select your Apple ID team
 2. Press **Command+R** to build and run
@@ -107,32 +107,56 @@ cd NextMeeting
 
 ## First launch and security
 
-- **Menu bar app:** NextMeeting runs in the **menu bar** and may not appear in the Dock after launch. Look for its icon near the clock.
+- **Menu bar app:** ProxiMeeting runs in the **menu bar** and may not appear in the Dock after launch. Look for its icon near the clock.
 - **Opening from Terminal:** An `.app` bundle is a folder, not a shell command. Use **`open`**, for example:
 
   ```bash
-  open /Applications/NextMeeting.app
+  open /Applications/ProxiMeeting.app
   ```
 
-  Or use Finder → **Applications** → **NextMeeting**. If Homebrew installed to your user folder, try `open ~/Applications/NextMeeting.app`.
+  Or use Finder → **Applications** → **ProxiMeeting**. If Homebrew installed to your user folder, try `open ~/Applications/ProxiMeeting.app`.
 
-- **Gatekeeper (“Apple could not verify…”):** Releases are built with ad-hoc signing and are **not** Apple-notarized, so macOS may show a warning the first time you open the app. This means the binary is not stapled with Apple’s notarization ticket—not that Apple detected malware. If you trust [this source](https://github.com/dytsou/NextMeeting), you can proceed: **Control-click** (or right-click) the app in Finder → **Open**, then confirm **Open**; or go to **System Settings → Privacy & Security** and use **Open Anyway** when NextMeeting is listed. Avoid turning off Gatekeeper entirely for the whole Mac.
+- **Gatekeeper (“Apple could not verify…”):** Releases are built with ad-hoc signing and are **not** Apple-notarized, so macOS may show a warning the first time you open the app. This means the binary is not stapled with Apple’s notarization ticket—not that Apple detected malware. If you trust [this source](https://github.com/dytsou/ProxiMeeting), you can proceed: **Control-click** (or right-click) the app in Finder → **Open**, then confirm **Open**; or go to **System Settings → Privacy & Security** and use **Open Anyway** when ProxiMeeting is listed. Avoid turning off Gatekeeper entirely for the whole Mac.
+
+## Troubleshooting: menu bar item doesn't appear
+
+You installed ProxiMeeting, it launched, but no icon shows up near the clock — and if you **rename** the bundle before building (e.g. `APP_NAME=MeetingTrayTest make install`), the tray suddenly works. That's the telltale sign of **stale Launch Services registrations** for `com.proximeeting.app`, usually left behind by interrupted Homebrew cask upgrades (directories like `/usr/local/Caskroom/proximeeting/1.3.x.upgrading/` that no longer exist). macOS resolves the bundle id to one of those ghost rows, finds it flagged `launch-disabled`, and silently no-ops.
+
+The one-liner recovery is:
+
+```bash
+make reset && make install
+```
+
+**What `make reset` removes** (nuclear — irreversible):
+
+- All on-disk copies: `/Applications/ProxiMeeting.app`, `~/Applications/ProxiMeeting.app`, and the repo-local build artifact (plus the `MeetingTrayTest` diagnostic sibling if present).
+- Stale Launch Services rows for `com.proximeeting.app` and `com.proximeeting.app.traytest` (via per-path `lsregister -u` followed by `lsregister -gc`).
+- Per-bundle-id state under `~/Library`: `Containers/`, `Group Containers/`, `Preferences/`, `Caches/`, `HTTPStorages/`, `Saved Application State/`, `WebKit/`, `Application Support/`, and cookie stores.
+- **Calendar and AddressBook TCC grants** for those bundle ids — macOS will re-prompt for calendar access the next time the app launches.
+- Restarts Dock (~1 s flicker) to reload its Launch Services icon cache. Does **not** touch `cfprefsd` or any unrelated app's preferences.
+
+**Before destroying anything**, the script prints the detected ghost rows and the exact list of paths it will remove, then asks `Continue? [y/N]`. Pass `--yes` (or set `PROXIMEETING_RESET_YES=1`) to skip the prompt in scripts/CI.
+
+A diagnostic before/after snapshot is written to `/tmp/proximeeting-reset-<epoch>.log` — if reset-plus-install doesn't fix your tray, attach that file when reporting the issue.
+
+If `make reset` finishes with `Reset INCOMPLETE` (exit code 1), either a ghost row survived `lsregister -gc` or a path needed `sudo`. The final banner prints the exact next command (`lsregister -delete` + reboot, or a specific `sudo rm -rf`).
 
 ## Project Structure
 
 ```
-NextMeeting/
+ProxiMeeting/
 ├── build.sh                        # Build with swiftc (no Xcode needed)
 ├── setup.sh                        # Generate xcodeproj with xcodegen and open
 ├── project.yml                     # xcodegen config
-└── NextMeeting/
-    ├── NextMeetingApp.swift        # App entry point + menu bar label
+└── ProxiMeeting/
+    ├── ProxiMeetingApp.swift        # App entry point + menu bar label
     ├── CalendarManager.swift       # EventKit + video link detection
     ├── CalendarSelectionStore.swift # UserDefaults: which calendars to include
     ├── JoinPreferenceStore.swift   # UserDefaults: App vs browser per service
     ├── MeetingMenuView.swift       # Popup UI
     ├── Info.plist                  # Calendar permission descriptions
-    ├── NextMeeting.entitlements    # Sandbox + calendar entitlements
+    ├── ProxiMeeting.entitlements    # Sandbox + calendar entitlements
     ├── en.lproj/
     │   └── Localizable.strings
     └── zh-Hant.lproj/
@@ -160,7 +184,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to propose changes, build locally
 
 ## Adding a New Language
 
-1. Create `NextMeeting/<locale>.lproj/Localizable.strings`
+1. Create `ProxiMeeting/<locale>.lproj/Localizable.strings`
 2. Copy keys from `en.lproj/Localizable.strings` and translate the values
 3. Add the locale string to `CFBundleLocalizations` in `Info.plist`
 4. Add the lproj path to `resources` in `project.yml` and re-run `./setup.sh`

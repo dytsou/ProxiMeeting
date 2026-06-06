@@ -1,7 +1,13 @@
-APP_NAME  := NextMeeting
-BUNDLE_ID := com.nextmeeting.app
+# Default matches releases / Homebrew. Local diagnostic name: APP_NAME=MeetingTrayTest make install
+# (uses bundle id com.proximeeting.app.traytest so it can run alongside the shipped app and show its own menu bar item)
+APP_NAME ?= ProxiMeeting
+ifeq ($(APP_NAME),ProxiMeeting)
+BUNDLE_ID := com.proximeeting.app
+else
+BUNDLE_ID := com.proximeeting.app.traytest
+endif
 APP       := $(APP_NAME).app
-SRC       := NextMeeting
+SRC       := ProxiMeeting
 INSTALL_DIR ?= /Applications
 
 SDK       := $(shell xcrun --show-sdk-path --sdk macosx)
@@ -15,15 +21,15 @@ SWIFT_SRCS := \
 	$(SRC)/AppearanceStore.swift \
 	$(SRC)/AppDebug.swift \
 	$(SRC)/MeetingMenuView.swift \
-	$(SRC)/NextMeetingApp.swift \
+	$(SRC)/ProxiMeetingApp.swift \
 	$(SRC)/String+HalfwidthPrefix.swift \
 	$(SRC)/UpdateChecker.swift
 
-.PHONY: all build sync-app-version setup clean install
+.PHONY: all build sync-app-version setup clean install reset
 
 all: build
 
-## Sync CFBundleShortVersionString and CFBundleVersion from package.json into NextMeeting/Info.plist
+## Sync CFBundleShortVersionString and CFBundleVersion from package.json into ProxiMeeting/Info.plist
 sync-app-version:
 	@bash scripts/sync-info-plist-version.sh
 
@@ -66,11 +72,15 @@ build: sync-app-version
 		fi; \
 		rm -rf "$$WORK"; \
 	else \
-		echo "Warning: missing $$ASSET — restore NextMeeting/Assets.xcassets/AppIcon.appiconset from the repo."; \
+		echo "Warning: missing $$ASSET — restore ProxiMeeting/Assets.xcassets/AppIcon.appiconset from the repo."; \
+	fi
+	@if [ "$(APP_NAME)" != "ProxiMeeting" ]; then \
+		echo "==> Alternate build: stripping URL scheme (avoid duplicate proximeeting:// handlers with shipped app)."; \
+		/usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$(APP)/Contents/Info.plist" 2>/dev/null || true; \
 	fi
 	@echo "==> Signing (ad-hoc)..."
 	@tmp=$$(mktemp); \
-	plutil -convert xml1 -o "$$tmp" "$(SRC)/NextMeeting.entitlements"; \
+	plutil -convert xml1 -o "$$tmp" "$(SRC)/ProxiMeeting.entitlements"; \
 	codesign --force --deep --sign - --entitlements "$$tmp" "$(APP)"; \
 	rm -f "$$tmp"
 	@echo ""
@@ -78,18 +88,24 @@ build: sync-app-version
 
 ## Install to /Applications, kill any running instance, and relaunch
 install: build
-	@dest="$(INSTALL_DIR)"; \
+	@set -eu; \
+	dest="$(INSTALL_DIR)"; \
 	if [ ! -w "$$dest" ]; then \
 		dest="$$HOME/Applications"; \
 		mkdir -p "$$dest"; \
 		echo "==> $(INSTALL_DIR) not writable; installing to $$dest instead."; \
 	else \
-		echo "==> Installing to $$dest..."; \
+		echo "==> Installing into $$dest ..."; \
 	fi; \
 	pkill -x "$(APP_NAME)" 2>/dev/null || true; \
-	rm -rf "$$dest/$(APP)"; \
-	ditto "$(APP)" "$$dest/$(APP)"; \
-	open "$$dest/$(APP)"
+	pkill -x ProxiMeeting 2>/dev/null || true; \
+	pkill -x MeetingTrayTest 2>/dev/null || true; \
+	install_path="$$dest/$(APP)"; \
+	rm -rf "$$install_path"; \
+	ditto "$$(pwd)/$(APP)" "$$install_path" || { echo >&2 "==> ditto failed (try closing all ProxiMeeting variants, or sudo if dest is locked): $$install_path"; exit 1; }; \
+	echo "==> Installed: $$install_path"; \
+	open "$$install_path" || { echo >&2 "==> open failed for $$install_path (check Gatekeeper / Full Disk Access)."; exit 1; }; \
+	echo "==> Launched $$(basename "$$install_path")."
 
 ## Generate Xcode project via xcodegen (for IDE use)
 setup:
@@ -97,14 +113,19 @@ setup:
 	@command -v xcodegen > /dev/null 2>&1 || brew install xcodegen
 	@echo "==> Generating Xcode project..."
 	xcodegen generate
-	open NextMeeting.xcodeproj
+	open ProxiMeeting.xcodeproj
 
 ## Remove build artifacts
 clean:
 	@echo "==> Cleaning..."
 	rm -rf "$(APP)"
+	rm -rf ProxiMeeting.app MeetingTrayTest.app
 	@echo "==> Clearing cached update state (UserDefaults)..."
 	@defaults delete "$(BUNDLE_ID)" updates.availableVersion 2>/dev/null || true
 	@defaults delete "$(BUNDLE_ID)" updates.availableDownloadURL 2>/dev/null || true
 	@defaults delete "$(BUNDLE_ID)" updates.lastUpdateCheckDate 2>/dev/null || true
 	@echo "Done."
+
+## Nuclear environment reset: remove all installs, purge Launch Services via lsregister -gc + -u, wipe ~/Library state, reset Calendar/AddressBook TCC for com.proximeeting.app(.traytest). Prompts for confirmation unless --yes / PROXIMEETING_RESET_YES=1.
+reset:
+	@bash scripts/reset-environment.sh

@@ -1,6 +1,69 @@
 import SwiftUI
 import AppKit
 import Combine
+import OSLog
+
+/// Unified logging for “tray not visible” reports (Console / `log show` — subsystem = bundle id, category = MenuBarTray).
+private enum TrayOSLog {
+    private static var log: Logger {
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.proximeeting.app", category: "MenuBarTray")
+    }
+
+    static func notice(_ message: String) {
+        log.notice("\(message, privacy: .public)")
+    }
+}
+
+// #region agent log
+/// NDJSON instrumentation for Cursor debug sessions (writes to workspace `.cursor/debug-*.log`).
+private enum AgentDebugNDJSON {
+    static let path = "/Users/dytsou/src/ProxiMeeting/.cursor/debug-128e40.log"
+    static let sessionId = "128e40"
+
+    private struct Line: Encodable {
+        let sessionId: String
+        let runId: String
+        let timestamp: Int64
+        let hypothesisId: String
+        let location: String
+        let message: String
+        let data: [String: String]
+    }
+
+    /// - Note: synchronous append from MainActor call sites only; avoids reorder.
+    static func log(
+        runId: String = "pre-fix",
+        hypothesisId: String,
+        location: String,
+        message: String,
+        data: [String: String] = [:]
+    ) {
+        let payload = Line(
+            sessionId: sessionId,
+            runId: runId,
+            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            hypothesisId: hypothesisId,
+            location: location,
+            message: message,
+            data: data
+        )
+        guard let json = try? JSONEncoder().encode(payload),
+              var text = String(data: json, encoding: .utf8) else { return }
+        text += "\n"
+        guard let chunk = text.data(using: .utf8) else { return }
+        let url = URL(fileURLWithPath: path)
+        do {
+            if !FileManager.default.fileExists(atPath: path) {
+                FileManager.default.createFile(atPath: path, contents: nil)
+            }
+            let h = try FileHandle(forWritingTo: url)
+            defer { try? h.close() }
+            try h.seekToEnd()
+            try h.write(contentsOf: chunk)
+        } catch {}
+    }
+}
+// #endregion
 
 /// Shared app state installed after `applicationDidFinishLaunching` so the status item attaches with a finalized activation policy (LSUIElement + delegates).
 @MainActor
@@ -15,26 +78,104 @@ final class ApplicationSession {
     }
 
     func installStatusBarIfNeeded() {
-        guard statusBarController == nil else { return }
+        // #region agent log
+        let hadController = statusBarController != nil
+        AgentDebugNDJSON.log(
+            hypothesisId: "H2",
+            location: "ApplicationSession.installStatusBarIfNeeded.entry",
+            message: "entered",
+            data: ["alreadyHadController": hadController ? "true" : "false"]
+        )
+        // #endregion
+        guard statusBarController == nil else {
+            TrayOSLog.notice("installStatusBarIfNeeded: already installed — skipping")
+            return
+        }
+        TrayOSLog.notice("installStatusBarIfNeeded: creating StatusBarController")
         statusBarController = StatusBarController(manager: calendarManager, calendarSelection: calendarSelection)
         AppDebug.log("Installed NSStatusItem (application session ready)")
     }
 }
 
-/// Handles `nextmeeting://…` URLs (Raycast extension, scripts, Automation).
-final class NextMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
+/// Handles `proximeeting://…` URLs (Raycast extension, scripts, Automation).
+final class ProxiMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
     weak var session: ApplicationSession?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // Without this, merging a delegate with SwiftUI can leave policy unset such that accessory UI never shows reliably.
-        if !NSApp.setActivationPolicy(.accessory) {
-            AppDebug.log("setActivationPolicy(.accessory) returned false — menu bar tray may not appear")
+        // #region agent log
+        AgentDebugNDJSON.log(
+            hypothesisId: "H5",
+            location: "ProxiMeetingApplicationDelegate.applicationWillFinishLaunching",
+            message: "willFinishLaunching",
+            data: [
+                "activationPolicyRaw": "\(NSApp.activationPolicy().rawValue)",
+                "bundleLeaf": Bundle.main.bundleURL.lastPathComponent
+            ]
+        )
+        // #endregion
+        TrayOSLog.notice(
+            "applicationWillFinishLaunching: bundle=\(Bundle.main.bundleURL.lastPathComponent) policyRaw=\(NSApp.activationPolicy().rawValue)"
+        )
+        // Without applying `.accessory` here, merging a SwiftUI App with a delegate can leave policy unset briefly.
+        if NSApp.activationPolicy() != .accessory {
+            let ok = NSApp.setActivationPolicy(.accessory)
+            // `false` alone is not definitive — policy may already be `.accessory` from App init.
+            if !ok, NSApp.activationPolicy() != .accessory {
+                AppDebug.log("setActivationPolicy(.accessory) failed — menu bar tray may not appear")
+            }
         }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // #region agent log
+        AgentDebugNDJSON.log(
+            hypothesisId: "H1",
+            location: "ProxiMeetingApplicationDelegate.applicationDidFinishLaunching",
+            message: "didFinishLaunching session wired",
+            data: ["sessionNil": session == nil ? "true" : "false"]
+        )
+        // #endregion
+        TrayOSLog.notice("applicationDidFinishLaunching: scheduling immediate Tray Task + deferred retry")
+        // First chance: ASAP on MainActor while still in launch transient.
         Task { @MainActor [weak self] in
+            if NSApp.activationPolicy() != .accessory {
+                _ = NSApp.setActivationPolicy(.accessory)
+            }
+            TrayOSLog.notice(
+                "tray-install pass A: policyRaw=\(NSApp.activationPolicy().rawValue)"
+            )
+            // #region agent log
+            AgentDebugNDJSON.log(
+                hypothesisId: "H5",
+                location: "ProxiMeetingApplicationDelegate.trayPassA",
+                message: "pass A before install",
+                data: ["activationPolicyRaw": "\(NSApp.activationPolicy().rawValue)", "sessionNil": self?.session == nil ? "true" : "false"]
+            )
+            // #endregion
             self?.session?.installStatusBarIfNeeded()
+        }
+        // Second chance after SwiftUI / scene bootstrap has progressed one runloop.
+        DispatchQueue.main.async { [weak self] in
+            if NSApp.activationPolicy() != .accessory {
+                let okRetry = NSApp.setActivationPolicy(.accessory)
+                if !okRetry, NSApp.activationPolicy() != .accessory {
+                    AppDebug.log("Deferred setActivationPolicy(.accessory) failed — tray may be missing until next launch.")
+                }
+            }
+            TrayOSLog.notice(
+                "tray-install pass B: policyRaw=\(NSApp.activationPolicy().rawValue)"
+            )
+            // #region agent log
+            AgentDebugNDJSON.log(
+                hypothesisId: "H5",
+                location: "ProxiMeetingApplicationDelegate.trayPassB",
+                message: "pass B before install",
+                data: ["activationPolicyRaw": "\(NSApp.activationPolicy().rawValue)", "sessionNil": self?.session == nil ? "true" : "false"]
+            )
+            // #endregion
+            Task { @MainActor [weak self] in
+                self?.session?.installStatusBarIfNeeded()
+            }
         }
     }
 
@@ -53,7 +194,7 @@ final class NextMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
 
         let calendarManager = session.calendarManager
         for url in urls {
-            guard url.scheme?.caseInsensitiveCompare("nextmeeting") == .orderedSame else { continue }
+            guard url.scheme?.caseInsensitiveCompare("proximeeting") == .orderedSame else { continue }
 
             let host = (url.host ?? "").lowercased()
 
@@ -67,7 +208,7 @@ final class NextMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
             case "open-preferences":
                 statusBarController.showPopoverAnchoredAtStatusItem()
                 DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: .nextMeetingOpenJoinSettings, object: nil)
+                    NotificationCenter.default.post(name: .proxiMeetingOpenJoinSettings, object: nil)
                 }
                 AppDebug.log("DeepLink: open-preferences")
             default:
@@ -75,15 +216,47 @@ final class NextMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
             }
         }
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // #region agent log
+        AgentDebugNDJSON.log(
+            hypothesisId: "H3",
+            location: "ProxiMeetingApplicationDelegate.applicationWillTerminate",
+            message: "willTerminate",
+            data: [:]
+        )
+        // #endregion
+    }
 }
 
 @main
-struct NextMeetingApp: App {
-    @NSApplicationDelegateAdaptor(NextMeetingApplicationDelegate.self) private var appDelegate
+struct ProxiMeetingApp: App {
+    @NSApplicationDelegateAdaptor(ProxiMeetingApplicationDelegate.self) private var appDelegate
     private let session = ApplicationSession()
 
     init() {
+        if NSApplication.shared.activationPolicy() != .accessory {
+            let ok = NSApplication.shared.setActivationPolicy(.accessory)
+            if !ok, NSApplication.shared.activationPolicy() != .accessory {
+                AppDebug.log("init: setActivationPolicy(.accessory) failed")
+            }
+        }
+        TrayOSLog.notice(
+            "ProxiMeetingApp.init: policyRaw=\(NSApplication.shared.activationPolicy().rawValue) bundleLeaf=\(Bundle.main.bundleURL.lastPathComponent)"
+        )
         appDelegate.session = session
+        // #region agent log
+        AgentDebugNDJSON.log(
+            hypothesisId: "H1",
+            location: "ProxiMeetingApp.init",
+            message: "init session assigned to delegate",
+            data: [
+                "activationPolicyRaw": "\(NSApplication.shared.activationPolicy().rawValue)",
+                "bundleLeaf": Bundle.main.bundleURL.lastPathComponent,
+                "bundleIdentifier": Bundle.main.bundleIdentifier ?? ""
+            ]
+        )
+        // #endregion
     }
 
     // MenuBarExtra is no longer used — popover is managed by StatusBarController
@@ -143,6 +316,10 @@ class StatusBarController: NSObject {
         if let button = statusItem.button {
             button.action = #selector(togglePopover)
             button.target = self
+            let display =
+                (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                ?? Bundle.main.bundleURL.deletingPathExtension().lastPathComponent
+            button.toolTip = display
         }
 
         update(meeting: nil)
@@ -163,7 +340,7 @@ class StatusBarController: NSObject {
             }
 
         dismissPopoverObserver = NotificationCenter.default.addObserver(
-            forName: .nextMeetingDismissPopover,
+            forName: .proxiMeetingDismissPopover,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -186,6 +363,54 @@ class StatusBarController: NSObject {
         }
 
         updateChecker.start()
+
+        TrayOSLog.notice(
+            "StatusBarController.init: isVisible=\(statusItem.isVisible) buttonNil=\(statusItem.button == nil)"
+        )
+        // #region agent log
+        AgentDebugNDJSON.log(
+            hypothesisId: "H4",
+            location: "StatusBarController.init",
+            message: "after NSStatusItem wiring",
+            data: [
+                "isVisible": statusItem.isVisible ? "true" : "false",
+                "buttonNil": statusItem.button == nil ? "true" : "false"
+            ]
+        )
+        // #endregion
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let btn = self.statusItem.button else {
+                TrayOSLog.notice("StatusBarController postLayout: button is nil")
+                // #region agent log
+                AgentDebugNDJSON.log(
+                    hypothesisId: "H4",
+                    location: "StatusBarController.postLayout",
+                    message: "button nil",
+                    data: [:]
+                )
+                // #endregion
+                return
+            }
+            TrayOSLog.notice(
+                "StatusBarController postLayout: w=\(String(format: "%.1f", btn.frame.width)) h=\(String(format: "%.1f", btn.frame.height)) hidden=\(btn.isHidden) inWindow=\(btn.window != nil)"
+            )
+            // #region agent log
+            AgentDebugNDJSON.log(
+                hypothesisId: "H4",
+                location: "StatusBarController.postLayout",
+                message: "layout",
+                data: [
+                    "w": String(format: "%.1f", btn.frame.width),
+                    "h": String(format: "%.1f", btn.frame.height),
+                    "buttonHidden": btn.isHidden ? "true" : "false",
+                    "inWindow": btn.window != nil ? "true" : "false",
+                    "nsAppHidden": NSApp.isHidden ? "true" : "false",
+                    "nsAppActive": NSApp.isActive ? "true" : "false"
+                ]
+            )
+            // #endregion
+        }
 
         // Homebrew upgrades replace the app on disk while it is running.
         // If the on-disk bundle version changes, relaunch to the new version automatically.
@@ -220,7 +445,7 @@ class StatusBarController: NSObject {
         }
     }
 
-    /// Opens the transient popover (used by Raycast commands and `nextmeeting://open-popover`).
+    /// Opens the transient popover (used by Raycast commands and `proximeeting://open-popover`).
     func showPopoverAnchoredAtStatusItem() {
         guard let button = statusItem.button else { return }
         guard !popover.isShown else {

@@ -1,6 +1,6 @@
-# Contributing to NextMeeting
+# Contributing to ProxiMeeting
 
-Thanks for your interest in improving NextMeeting. This document describes how to propose changes and what to check before opening a pull request.
+Thanks for your interest in improving ProxiMeeting. This document describes how to propose changes and what to check before opening a pull request.
 
 ## Before you start
 
@@ -12,13 +12,13 @@ Thanks for your interest in improving NextMeeting. This document describes how t
 2. Build the app using one of these paths (pick what matches your environment):
    - **`./build.sh`** — uses Xcode Command Line Tools and `swiftc` (no full Xcode required).
    - **`make build`** — same idea via the Makefile.
-   - **`./setup.sh`** — generates `NextMeeting.xcodeproj` with xcodegen (Homebrew) and opens Xcode for GUI builds and signing.
+   - **`./setup.sh`** — generates `ProxiMeeting.xcodeproj` with xcodegen (Homebrew) and opens Xcode for GUI builds and signing.
 
 See [README.md](README.md) for calendar setup and install steps.
 
 ## Making changes
 
-- **Match existing style:** Follow naming, structure, and SwiftUI patterns already used in `NextMeeting/`.
+- **Match existing style:** Follow naming, structure, and SwiftUI patterns already used in `ProxiMeeting/`.
 - **Keep diffs focused:** One logical change per PR is easier to review than unrelated edits bundled together.
 - **Localization:** If you add or change user-visible strings, update `en.lproj/Localizable.strings` and `zh-Hant.lproj/Localizable.strings`, and follow [README.md § Adding a New Language](README.md#adding-a-new-language) if you introduce a new locale.
 - **Entitlements and privacy:** Changes that touch calendar access, sandbox, or `Info.plist` permission strings should be clearly explained in the PR.

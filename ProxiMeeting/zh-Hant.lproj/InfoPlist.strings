@@ -1,0 +1,4 @@
+NSCalendarsUsageDescription = "ProxiMeeting 需要存取行事曆以顯示即將到來的會議。";
+NSCalendarsFullAccessUsageDescription = "ProxiMeeting 需要完整存取行事曆以顯示即將到來的會議。";
+CFBundleDisplayName = "ProxiMeeting";
+NSHumanReadableCopyright = "Copyright © 2026 dytsou";

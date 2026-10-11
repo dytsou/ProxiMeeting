@@ -42,7 +42,6 @@ struct MeetingMenuView: View {
     @State private var keyMonitor: Any?
 
     private var today: Date { MeetingDayWindow.startOfDay(Date()) }
-    private var isBrowsingToday: Bool { MeetingDayWindow.isSameCalendarDay(browseDay, today) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,9 +51,6 @@ struct MeetingMenuView: View {
                 showDatePicker: $showDatePicker,
                 onReturnToToday: { selectBrowseDay(today) }
             )
-            if !isBrowsingToday, manager.nextMeeting != nil {
-                YouAreHereRibbon(onReturnToToday: { selectBrowseDay(today) })
-            }
             Divider()
             DayChipStrip(
                 browseDay: browseDay,
@@ -244,39 +240,6 @@ private struct HeaderView: View {
         .padding(.horizontal, 14)
         .padding(.top, 10)
         .padding(.bottom, 8)
-    }
-}
-
-// MARK: - You-Are-Here ribbon
-
-/// Off-today chrome: today's next meeting summary. Snap-back lives in the header.
-private struct YouAreHereRibbon: View {
-    @EnvironmentObject var manager: CalendarManager
-    let onReturnToToday: () -> Void
-
-    var body: some View {
-        if let next = manager.nextMeeting {
-            Button(action: onReturnToToday) {
-                HStack(spacing: 8) {
-                    Image(systemName: "location.fill")
-                        .font(.system(size: 10))
-                    Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
-                        .font(.system(size: 11, weight: .medium))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.08))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(
-                Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
-            )
-            .accessibilityHint(Text("ribbon.back_today"))
-        }
     }
 }
 

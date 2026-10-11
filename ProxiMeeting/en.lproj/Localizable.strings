@@ -13,8 +13,7 @@
 "strip.a11y.value_one" = "%@, %d meeting";
 "strip.a11y.value_other" = "%@, %d meetings";
 
-/* You-Are-Here ribbon */
-"ribbon.today_next" = "Today · %@";
+/* Back to today (header icon help / a11y) */
 "ribbon.back_today" = "Back to today";
 
 /* Auth */

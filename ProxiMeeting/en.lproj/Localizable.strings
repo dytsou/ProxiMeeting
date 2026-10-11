@@ -16,6 +16,9 @@
 /* Back to today (header icon help / a11y) */
 "ribbon.back_today" = "Back to today";
 
+/* Menu chrome */
+"menu.resize_list" = "Drag to resize list";
+
 /* Auth */
 "auth.required" = "Calendar access required";
 "auth.grant" = "Grant Access";

@@ -16,6 +16,9 @@
 /* Back to today (header icon help / a11y) */
 "ribbon.back_today" = "回到今天";
 
+/* Menu chrome */
+"menu.resize_list" = "拖曳以調整清單高度";
+
 /* Auth */
 "auth.required" = "需要行事曆存取權限";
 "auth.grant" = "授權存取";

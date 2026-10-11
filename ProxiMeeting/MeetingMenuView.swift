@@ -49,6 +49,7 @@ struct MeetingMenuView: View {
                 browseDay: browseDay,
                 showJoinSettings: $showJoinSettings,
                 showDatePicker: $showDatePicker,
+                onSelectBrowseDay: selectBrowseDay,
                 onReturnToToday: { selectBrowseDay(today) }
             )
             Divider()
@@ -58,6 +59,8 @@ struct MeetingMenuView: View {
             )
             Divider()
             ContentView(browseDay: browseDay)
+                .frame(height: appearanceStore.popoverListHeight)
+            PopoverListResizeHandle()
             Divider()
             FooterView()
         }
@@ -96,9 +99,6 @@ struct MeetingMenuView: View {
                 .environmentObject(manager)
                 .environmentObject(calendarSelection)
                 .environmentObject(appearanceStore)
-        }
-        .popover(isPresented: $showDatePicker, arrowEdge: .bottom) {
-            FarJumpDatePicker(selection: browseDay, onSelect: selectBrowseDay)
         }
     }
 
@@ -175,6 +175,7 @@ private struct HeaderView: View {
     let browseDay: Date
     @Binding var showJoinSettings: Bool
     @Binding var showDatePicker: Bool
+    var onSelectBrowseDay: (Date) -> Void
     var onReturnToToday: () -> Void
 
     private var isToday: Bool {
@@ -188,7 +189,7 @@ private struct HeaderView: View {
                     Text(isToday ? "header.title" : "header.title.other_day")
                         .font(.headline)
                     Button {
-                        showDatePicker = true
+                        showDatePicker.toggle()
                     } label: {
                         HStack(spacing: 4) {
                             Text(browseDay, format: .dateTime.year().month(.wide).day().weekday(.wide))
@@ -202,6 +203,10 @@ private struct HeaderView: View {
                     .buttonStyle(.plain)
                     .help(Text("header.pick_date"))
                     .accessibilityLabel(Text("header.pick_date"))
+                    // Anchor under the date control (not the whole menu) so the picker sits in the header.
+                    .popover(isPresented: $showDatePicker, arrowEdge: .top) {
+                        FarJumpDatePicker(selection: browseDay, onSelect: onSelectBrowseDay)
+                    }
                 }
                 Spacer(minLength: 8)
                 HStack(spacing: 10) {
@@ -396,7 +401,7 @@ private struct UnauthorizedView: View {
             }
             .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
     }
 }
@@ -421,7 +426,7 @@ private struct NoMeetingsView: View {
             }
             .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(16)
         .id(MeetingDayWindow.startOfDay(browseDay))
     }
@@ -448,7 +453,48 @@ private struct MeetingListView: View {
             }
             .padding(.vertical, 4)
         }
-        .frame(maxHeight: appearanceStore.popoverListHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Drag handle under the meeting list — updates persisted `popoverListHeight`.
+private struct PopoverListResizeHandle: View {
+    @EnvironmentObject private var appearanceStore: AppearanceStore
+    @State private var dragOriginHeight: Double?
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+            Capsule()
+                .fill(Color.secondary.opacity(0.35))
+                .frame(width: 36, height: 4)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 12)
+        .contentShape(Rectangle())
+        .help(Text("menu.resize_list"))
+        .accessibilityLabel(Text("menu.resize_list"))
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    if dragOriginHeight == nil {
+                        dragOriginHeight = appearanceStore.popoverListHeight
+                    }
+                    let next = (dragOriginHeight ?? appearanceStore.popoverListHeight) + value.translation.height
+                    appearanceStore.popoverListHeight = next
+                }
+                .onEnded { _ in
+                    dragOriginHeight = nil
+                }
+        )
     }
 }
 

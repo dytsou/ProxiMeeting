@@ -30,8 +30,8 @@
 set -euo pipefail
 shopt -s nullglob
 
-readonly BUNDLE_IDS=(com.proximeeting.app com.proximeeting.app.traytest)
-readonly APP_NAMES=(ProxiMeeting MeetingTrayTest)
+readonly BUNDLE_IDS=(com.proximeeting.app com.proximeeting.app.beta com.proximeeting.app.traytest)
+readonly APP_NAMES=(ProxiMeeting ProxiMeetingBeta MeetingTrayTest)
 
 readonly LSREG=/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister
 readonly LOG=/tmp/proximeeting-reset-$(date +%s).log

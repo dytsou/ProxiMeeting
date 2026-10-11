@@ -49,13 +49,38 @@ final class AppearanceStore: ObservableObject {
         }
     }
 
+    /// Meeting-list viewport height inside the menu popover (drag-resizable).
+    static let popoverListHeightDefault: Double = 90
+    static let popoverListHeightMin: Double = 90
+    static let popoverListHeightMax: Double = 360
+
     var popoverListHeight: Double {
         get {
             let v = defaults.double(forKey: "appearance.popoverListHeight")
-            return v == 0 ? 360 : v
+            let raw = v == 0 ? Self.popoverListHeightDefault : v
+            return min(max(raw, Self.popoverListHeightMin), Self.popoverListHeightMax)
         }
         set {
-            defaults.set(newValue, forKey: "appearance.popoverListHeight")
+            let clamped = min(max(newValue, Self.popoverListHeightMin), Self.popoverListHeightMax)
+            defaults.set(clamped, forKey: "appearance.popoverListHeight")
+            objectWillChange.send()
+        }
+    }
+
+    /// Far-jump calendar scale (1 = intrinsic NSDatePicker size).
+    static let datePickerScaleDefault: Double = 1
+    static let datePickerScaleMin: Double = 1
+    static let datePickerScaleMax: Double = 2.0
+
+    var datePickerScale: Double {
+        get {
+            let v = defaults.double(forKey: "appearance.datePickerScale")
+            let raw = v == 0 ? Self.datePickerScaleDefault : v
+            return min(max(raw, Self.datePickerScaleMin), Self.datePickerScaleMax)
+        }
+        set {
+            let clamped = min(max(newValue, Self.datePickerScaleMin), Self.datePickerScaleMax)
+            defaults.set(clamped, forKey: "appearance.datePickerScale")
             objectWillChange.send()
         }
     }

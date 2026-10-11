@@ -1,6 +1,9 @@
 import Combine
 import EventKit
 import AppKit
+#if canImport(ProxiMeetingCore)
+import ProxiMeetingCore
+#endif
 
 // MARK: - Models
 
@@ -61,17 +64,23 @@ class CalendarManager: ObservableObject {
 
     @Published var nextMeeting: Meeting?
     @Published var upcomingMeetings: [Meeting] = []
-    @Published var tomorrowMeetings: [Meeting] = []
     @Published var isAuthorized = false
+    /// Inclusive start-of-day bounds for the loaded meeting window.
+    @Published private(set) var windowBounds: MeetingDayWindow.Bounds
+    /// Non-all-day meetings bucketed by start-of-day of `startDate`.
+    @Published private(set) var meetingsByDay: [Date: [Meeting]] = [:]
 
     private var timer: Timer?
     private var notificationObserver: NSObjectProtocol?
     private var selectionCancellable: AnyCancellable?
     private var fetchTask: Task<Void, Never>?
     private var lastFetchAt: Date?
+    /// Bounds stamped with the last fetch that passed the coalesce gate (skip coalesce when window moved).
+    private var lastFetchedBounds: MeetingDayWindow.Bounds?
 
     init(calendarSelection: CalendarSelectionStore) {
         self.calendarSelection = calendarSelection
+        self.windowBounds = MeetingDayWindow.defaultBounds(around: Date())
         checkAndFetch()
         setupChangeObserver()
         selectionCancellable = calendarSelection.objectWillChange
@@ -106,22 +115,26 @@ class CalendarManager: ObservableObject {
 
     // MARK: Authorization
 
+    /// Reads authorization and starts refresh when already granted. Does **not** prompt —
+    /// `.notDetermined` stays unauthorized until the user taps Grant Access (`requestAccess()`).
     func checkAndFetch() {
         let status = EKEventStore.authorizationStatus(for: .event)
         switch status {
         case .authorized, .fullAccess:
             isAuthorized = true
             startRefreshing()
-        case .notDetermined, .restricted:
-            requestAccess()
+        case .notDetermined:
+            isAuthorized = false
         default:
             isAuthorized = false
         }
     }
 
+    /// User-gesture path: activate the app, then show the Calendar permission sheet.
     func requestAccess() {
+        NSApp.activate(ignoringOtherApps: true)
         if #available(macOS 14.0, *) {
-            Task {
+            Task { @MainActor in
                 do {
                     let granted = try await eventStore.requestFullAccessToEvents()
                     isAuthorized = granted
@@ -174,49 +187,107 @@ class CalendarManager: ObservableObject {
             if debounceSeconds > 0 {
                 let ns = UInt64(debounceSeconds * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: ns)
+                if Task.isCancelled { return }
             }
 
             // Coalesce accidental back-to-back triggers (timer tick + EKEventStoreChanged, etc).
-            if let lastFetchAt, Date().timeIntervalSince(lastFetchAt) < 0.05 {
+            // Never coalesce across a windowBounds change — far-jump / edge extend need a real refill.
+            let bounds = windowBounds
+            if let lastFetchAt, Date().timeIntervalSince(lastFetchAt) < 0.05,
+               lastFetchedBounds == bounds {
                 return
             }
             lastFetchAt = Date()
+            lastFetchedBounds = bounds
             performFetchMeetings()
         }
+    }
+
+    /// Start-of-day keys currently covered by the loaded window (empty days included).
+    var daysInWindow: [Date] {
+        MeetingDayWindow.daysInWindow(bounds: windowBounds)
+    }
+
+    /// Non-all-day meeting count for density dots on a day key.
+    func meetingCount(for day: Date) -> Int {
+        let key = MeetingDayWindow.dayKey(day)
+        return meetingsByDay[key]?.count ?? 0
+    }
+
+    /// Meetings for the browse list: today uses remaining/ongoing rules; other days are full-day.
+    func meetings(for browseDay: Date, now: Date = Date()) -> [Meeting] {
+        let calendar = Calendar.current
+        let day = MeetingDayWindow.dayKey(browseDay, calendar: calendar)
+        let today = MeetingDayWindow.dayKey(now, calendar: calendar)
+
+        if day == today {
+            let candidates = meetingsByDay
+                .filter { $0.key <= today }
+                .values
+                .flatMap { $0 }
+            return candidates
+                .filter {
+                    MeetingDayWindow.includesInTodayBrowse(
+                        startDate: $0.startDate,
+                        endDate: $0.endDate,
+                        now: now,
+                        browseDay: day,
+                        calendar: calendar
+                    )
+                }
+                .sorted { $0.startDate < $1.startDate }
+        }
+
+        return meetingsByDay[day] ?? []
+    }
+
+    /// Ensures `browseDay` sits in the loaded window (edge extend or far-jump recenter), then refetches if bounds change.
+    func ensureWindow(for browseDay: Date) {
+        let next = MeetingDayWindow.boundsAfterSelecting(
+            browseDay: browseDay,
+            current: windowBounds
+        )
+        guard next != windowBounds else { return }
+        windowBounds = next
+        requestFetch(debounceSeconds: 0)
+    }
+
+    /// Resets the loaded window around calendar today (popover open landing).
+    func resetWindowAroundToday() {
+        let next = MeetingDayWindow.defaultBounds(around: Date())
+        guard next != windowBounds else {
+            requestFetch(debounceSeconds: 0)
+            return
+        }
+        windowBounds = next
+        requestFetch(debounceSeconds: 0)
     }
 
     private func performFetchMeetings() {
         let now = Date()
         let calendar = Calendar.current
-
-        // Today: look back up to 4 hours to catch long ongoing meetings
-        let searchStart = calendar.date(byAdding: .hour, value: -4, to: now) ?? now
-        guard let endOfToday = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: now) else { return }
-
+        let range = MeetingDayWindow.fetchRange(bounds: windowBounds, now: now, calendar: calendar)
         let calendarFilter = calendarsForPredicate()
-        let todayPredicate = eventStore.predicateForEvents(withStart: searchStart, end: endOfToday, calendars: calendarFilter)
-        let todayEvents = eventStore.events(matching: todayPredicate)
+        let predicate = eventStore.predicateForEvents(
+            withStart: range.start,
+            end: range.end,
+            calendars: calendarFilter
+        )
+        let events = eventStore.events(matching: predicate)
 
-        let meetings = todayEvents
-            .filter { !$0.isAllDay && $0.endDate > now }
-            .sorted { $0.startDate < $1.startDate }
-            .map { makeMeeting(from: $0) }
+        var bucket: [Date: [Meeting]] = [:]
+        for event in events where !event.isAllDay {
+            let key = MeetingDayWindow.dayKey(event.startDate, calendar: calendar)
+            bucket[key, default: []].append(makeMeeting(from: event))
+        }
+        for key in bucket.keys {
+            bucket[key]?.sort { $0.startDate < $1.startDate }
+        }
+        meetingsByDay = bucket
 
-        upcomingMeetings = meetings
-        nextMeeting = meetings.first
-
-        // Tomorrow
-        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
-              let startOfTomorrow = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: tomorrow),
-              let endOfTomorrow = calendar.date(bySettingHour: 23, minute: 59, second: 59, of: tomorrow) else { return }
-
-        let tomorrowPredicate = eventStore.predicateForEvents(withStart: startOfTomorrow, end: endOfTomorrow, calendars: calendarFilter)
-        let tomorrowEvents = eventStore.events(matching: tomorrowPredicate)
-
-        tomorrowMeetings = tomorrowEvents
-            .filter { !$0.isAllDay }
-            .sorted { $0.startDate < $1.startDate }
-            .map { makeMeeting(from: $0) }
+        let todayMeetings = meetings(for: MeetingDayWindow.dayKey(now, calendar: calendar), now: now)
+        upcomingMeetings = todayMeetings
+        nextMeeting = todayMeetings.first
     }
 
     // MARK: Meeting Construction

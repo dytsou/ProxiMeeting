@@ -1,35 +1,66 @@
 import SwiftUI
 import AppKit
 import EventKit
+#if canImport(ProxiMeetingCore)
+import ProxiMeetingCore
+#endif
 
 extension Notification.Name {
     /// Posted before opening a meeting in the browser so the menu popover can dismiss (browser preference or native fallback).
     static let proxiMeetingDismissPopover = Notification.Name("ProxiMeetingDismissPopover")
     /// Opens the Join / Settings sheet (Raycast extension and `proximeeting://open-preferences`).
     static let proxiMeetingOpenJoinSettings = Notification.Name("ProxiMeetingOpenJoinSettings")
+    /// Posted when the menu popover is about to show so browse day resets to today.
+    static let proxiMeetingPopoverWillShow = Notification.Name("ProxiMeetingPopoverWillShow")
+    /// Posted from the local key monitor; `object` is an `Int` day offset (−1 / +1).
+    static let proxiMeetingBrowseDayStep = Notification.Name("ProxiMeetingBrowseDayStep")
+}
+
+/// Gates local arrow-key capture so DatePicker / closed popover still receive keys.
+@MainActor
+enum BrowseDayKeyboardGate {
+    /// True only while the menu popover is shown (set from `StatusBarController`).
+    static var popoverIsShown = false
+    /// False while DatePicker / Join Settings are up.
+    static var allowsArrowCapture = false
+
+    static var capturesArrows: Bool { popoverIsShown && allowsArrowCapture }
 }
 
 // MARK: - Root Menu View
-
-enum MeetingTab { case today, tomorrow }
 
 struct MeetingMenuView: View {
     @EnvironmentObject var manager: CalendarManager
     @EnvironmentObject var joinPreferences: JoinPreferenceStore
     @EnvironmentObject var calendarSelection: CalendarSelectionStore
     @EnvironmentObject var appearanceStore: AppearanceStore
-    @State private var selectedTab: MeetingTab = .today
+    @State private var browseDay: Date = MeetingDayWindow.startOfDay(Date())
+    /// When true, browse day should follow civil "today" across midnight; false after an explicit off-today pick.
+    @State private var tracksCivilToday = true
     @State private var showJoinSettings = false
+    @State private var showDatePicker = false
+    @State private var keyMonitor: Any?
 
-    private var defaultTab: MeetingTab {
-        manager.upcomingMeetings.isEmpty ? .tomorrow : .today
-    }
+    private var today: Date { MeetingDayWindow.startOfDay(Date()) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HeaderView(selectedTab: $selectedTab, showJoinSettings: $showJoinSettings)
+            HeaderView(
+                browseDay: browseDay,
+                showJoinSettings: $showJoinSettings,
+                showDatePicker: $showDatePicker,
+                onSelectBrowseDay: selectBrowseDay,
+                onReturnToToday: { selectBrowseDay(today) }
+            )
             Divider()
-            ContentView(selectedTab: selectedTab)
+            DayChipStrip(
+                browseDay: browseDay,
+                onSelect: selectBrowseDay
+            )
+            Divider()
+            ContentView(browseDay: browseDay)
+                .frame(height: appearanceStore.popoverListHeight)
+            PopoverListResizeHandle()
             Divider()
             FooterView()
         }
@@ -37,9 +68,30 @@ struct MeetingMenuView: View {
         .environmentObject(manager)
         .environmentObject(joinPreferences)
         .environmentObject(calendarSelection)
-        .onAppear { selectedTab = defaultTab }
+        .onAppear {
+            resetBrowseToToday()
+            installKeyMonitor()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingPopoverWillShow)) { _ in
+            resetBrowseToToday()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingOpenJoinSettings)) { _ in
             showJoinSettings = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingBrowseDayStep)) { note in
+            guard BrowseDayKeyboardGate.capturesArrows else { return }
+            guard let offset = note.object as? Int else { return }
+            stepBrowseDay(by: offset)
+        }
+        // CalendarManager refreshes ~60s; reuse that signal to snap browse day when civil day rolls.
+        .onReceive(manager.$nextMeeting.map { _ in () }) { _ in
+            reconcileBrowseDayWithCivilToday()
+        }
+        .onChange(of: showJoinSettings) { _ in updateArrowCaptureGate() }
+        .onChange(of: showDatePicker) { _ in updateArrowCaptureGate() }
+        .onDisappear {
+            BrowseDayKeyboardGate.allowsArrowCapture = false
+            removeKeyMonitor()
         }
         .sheet(isPresented: $showJoinSettings) {
             JoinSettingsView()
@@ -49,27 +101,127 @@ struct MeetingMenuView: View {
                 .environmentObject(appearanceStore)
         }
     }
+
+    private func resetBrowseToToday() {
+        showDatePicker = false
+        let day = MeetingDayWindow.startOfDay(Date())
+        browseDay = day
+        tracksCivilToday = true
+        manager.resetWindowAroundToday()
+        updateArrowCaptureGate()
+    }
+
+    private func selectBrowseDay(_ day: Date) {
+        let keyed = MeetingDayWindow.startOfDay(day)
+        browseDay = keyed
+        tracksCivilToday = MeetingDayWindow.isSameCalendarDay(keyed, Date())
+        manager.ensureWindow(for: keyed)
+        showDatePicker = false
+        updateArrowCaptureGate()
+    }
+
+    /// If the user was browsing "today" and the civil day advanced while the popover stayed open, snap forward.
+    private func reconcileBrowseDayWithCivilToday() {
+        guard tracksCivilToday else { return }
+        let day = MeetingDayWindow.startOfDay(Date())
+        guard !MeetingDayWindow.isSameCalendarDay(browseDay, day) else { return }
+        browseDay = day
+        manager.resetWindowAroundToday()
+    }
+
+    private func stepBrowseDay(by offset: Int) {
+        let next = MeetingDayWindow.stepDay(browseDay, by: offset)
+        selectBrowseDay(next)
+    }
+
+    private func updateArrowCaptureGate() {
+        BrowseDayKeyboardGate.allowsArrowCapture = !showJoinSettings && !showDatePicker
+    }
+
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard BrowseDayKeyboardGate.capturesArrows else { return event }
+            guard event.window?.isKeyWindow == true else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if !mods.intersection([.command, .option, .control, .shift]).isEmpty {
+                return event
+            }
+            switch event.keyCode {
+            case 123: // left arrow
+                NotificationCenter.default.post(name: .proxiMeetingBrowseDayStep, object: -1)
+                return nil
+            case 124: // right arrow
+                NotificationCenter.default.post(name: .proxiMeetingBrowseDayStep, object: 1)
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+    }
 }
 
 // MARK: - Header
 
 private struct HeaderView: View {
     @EnvironmentObject var manager: CalendarManager
-    @Binding var selectedTab: MeetingTab
+    @EnvironmentObject var appearanceStore: AppearanceStore
+    let browseDay: Date
     @Binding var showJoinSettings: Bool
+    @Binding var showDatePicker: Bool
+    var onSelectBrowseDay: (Date) -> Void
+    var onReturnToToday: () -> Void
+
+    private var isToday: Bool {
+        MeetingDayWindow.isSameCalendarDay(browseDay, Date())
+    }
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("header.title")
+                    Text(isToday ? "header.title" : "header.title.other_day")
                         .font(.headline)
-                    Text(Date(), format: .dateTime.year().month(.wide).day().weekday(.wide))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Button {
+                        showDatePicker.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(browseDay, format: .dateTime.year().month(.wide).day().weekday(.wide))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text("header.pick_date"))
+                    .accessibilityLabel(Text("header.pick_date"))
+                    // Anchor under the date control (not the whole menu) so the picker sits in the header.
+                    .popover(isPresented: $showDatePicker, arrowEdge: .top) {
+                        FarJumpDatePicker(selection: browseDay, onSelect: onSelectBrowseDay)
+                            .environmentObject(appearanceStore)
+                    }
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 HStack(spacing: 10) {
+                    if !isToday {
+                        Button(action: onReturnToToday) {
+                            Image(systemName: "house")
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help(Text("ribbon.back_today"))
+                        .accessibilityLabel(Text("ribbon.back_today"))
+                    }
+
                     Button {
                         manager.fetchMeetings()
                     } label: {
@@ -78,6 +230,7 @@ private struct HeaderView: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text("header.refresh"))
+                    .accessibilityLabel(Text("header.refresh"))
 
                     Button {
                         showJoinSettings = true
@@ -87,14 +240,9 @@ private struct HeaderView: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text("footer.settings"))
+                    .accessibilityLabel(Text("footer.settings"))
                 }
             }
-
-            Picker("", selection: $selectedTab) {
-                Text("tab.today").tag(MeetingTab.today)
-                Text("tab.tomorrow").tag(MeetingTab.tomorrow)
-            }
-            .pickerStyle(.segmented)
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
@@ -102,19 +250,137 @@ private struct HeaderView: View {
     }
 }
 
+// MARK: - Day chip strip
+
+private struct DayChipStrip: View {
+    @EnvironmentObject var manager: CalendarManager
+    let browseDay: Date
+    let onSelect: (Date) -> Void
+
+    private var today: Date { MeetingDayWindow.startOfDay(Date()) }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(manager.daysInWindow, id: \.self) { day in
+                        DayChip(
+                            day: day,
+                            isToday: MeetingDayWindow.isSameCalendarDay(day, today),
+                            isSelected: MeetingDayWindow.isSameCalendarDay(day, browseDay),
+                            meetingCount: manager.meetingCount(for: day)
+                        ) {
+                            onSelect(day)
+                        }
+                        .id(day)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+            }
+            .onAppear {
+                proxy.scrollTo(MeetingDayWindow.startOfDay(browseDay), anchor: .center)
+            }
+            .onChange(of: browseDay) { newDay in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(MeetingDayWindow.startOfDay(newDay), anchor: .center)
+                }
+            }
+            .onChange(of: manager.windowBounds) { _ in
+                proxy.scrollTo(MeetingDayWindow.startOfDay(browseDay), anchor: .center)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("strip.day_selection"))
+        .accessibilityValue(Text(accessibilityValue))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                onSelect(MeetingDayWindow.stepDay(browseDay, by: 1))
+            case .decrement:
+                onSelect(MeetingDayWindow.stepDay(browseDay, by: -1))
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private var accessibilityValue: String {
+        let count = manager.meetingCount(for: browseDay)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .full
+        formatter.timeStyle = .none
+        let datePart = formatter.string(from: MeetingDayWindow.startOfDay(browseDay))
+        let formatKey = count == 1 ? "strip.a11y.value_one" : "strip.a11y.value_other"
+        return String(format: NSLocalizedString(formatKey, comment: ""), datePart, count)
+    }
+}
+
+private struct DayChip: View {
+    let day: Date
+    let isToday: Bool
+    let isSelected: Bool
+    let meetingCount: Int
+    let action: () -> Void
+
+    private var weekdayLabel: String {
+        day.formatted(.dateTime.weekday(.abbreviated))
+    }
+
+    private var dayNumber: String {
+        day.formatted(.dateTime.day())
+    }
+
+    private var dotCount: Int {
+        MeetingDayWindow.densityDotCount(meetingCount: meetingCount)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text(weekdayLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.9) : .secondary)
+                Text(dayNumber)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.white : .primary)
+                HStack(spacing: 2) {
+                    ForEach(0..<dotCount, id: \.self) { _ in
+                        Circle()
+                            .fill(isSelected ? Color.white.opacity(0.95) : Color.accentColor.opacity(0.85))
+                            .frame(width: 4, height: 4)
+                    }
+                }
+                .frame(height: 4)
+            }
+            .frame(width: 40, height: 52)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isToday && !isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Content
 
 private struct ContentView: View {
     @EnvironmentObject var manager: CalendarManager
-    let selectedTab: MeetingTab
+    let browseDay: Date
 
     var body: some View {
         if !manager.isAuthorized {
             UnauthorizedView()
         } else {
-            let meetings = selectedTab == .today ? manager.upcomingMeetings : manager.tomorrowMeetings
+            let meetings = manager.meetings(for: browseDay)
             if meetings.isEmpty {
-                NoMeetingsView(selectedTab: selectedTab)
+                NoMeetingsView(browseDay: browseDay)
             } else {
                 MeetingListView(meetings: meetings)
             }
@@ -137,31 +403,38 @@ private struct UnauthorizedView: View {
             }
             .buttonStyle(.borderedProminent)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(24)
     }
 }
 
 private struct NoMeetingsView: View {
-    let selectedTab: MeetingTab
+    let browseDay: Date
+
+    private var isToday: Bool {
+        MeetingDayWindow.isSameCalendarDay(browseDay, Date())
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
             Group {
-                switch selectedTab {
-                case .today:
+                if isToday {
                     Text("empty.no_meetings")
-                case .tomorrow:
-                    Text("empty.no_meetings_tomorrow")
+                } else {
+                    Text(String(format: NSLocalizedString("empty.no_meetings_on_day", comment: ""), dayLabel))
                 }
             }
             .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(16)
-        .id(selectedTab)
+        .id(MeetingDayWindow.startOfDay(browseDay))
+    }
+
+    private var dayLabel: String {
+        browseDay.formatted(.dateTime.month(.abbreviated).day().weekday(.abbreviated))
     }
 }
 
@@ -182,7 +455,48 @@ private struct MeetingListView: View {
             }
             .padding(.vertical, 4)
         }
-        .frame(maxHeight: appearanceStore.popoverListHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Drag handle under the meeting list — updates persisted `popoverListHeight`.
+private struct PopoverListResizeHandle: View {
+    @EnvironmentObject private var appearanceStore: AppearanceStore
+    @State private var dragOriginHeight: Double?
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+            Capsule()
+                .fill(Color.secondary.opacity(0.35))
+                .frame(width: 36, height: 4)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 12)
+        .contentShape(Rectangle())
+        .help(Text("menu.resize_list"))
+        .accessibilityLabel(Text("menu.resize_list"))
+        .onHover { hovering in
+            if hovering {
+                NSCursor.resizeUpDown.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    if dragOriginHeight == nil {
+                        dragOriginHeight = appearanceStore.popoverListHeight
+                    }
+                    let next = (dragOriginHeight ?? appearanceStore.popoverListHeight) + value.translation.height
+                    appearanceStore.popoverListHeight = next
+                }
+                .onEnded { _ in
+                    dragOriginHeight = nil
+                }
+        )
     }
 }
 
@@ -422,6 +736,252 @@ private struct PopoverMaterialBackgroundView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+// MARK: - Far-jump date picker (header)
+
+/// Matches nested `NSPopover` content chrome corner radius on recent macOS.
+private let farJumpPopoverCornerRadius: CGFloat = 10
+
+/// Bottom-trailing resize affordance — ⌝ whose bend matches the popover corner radius.
+private struct CornerResizeGrip: View {
+    var body: some View {
+        CornerResizeGripShape(cornerRadius: farJumpPopoverCornerRadius)
+            .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+    }
+}
+
+private struct CornerResizeGripShape: Shape {
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        // Keep stroke inside bounds; bend radius mirrors the outer popover frame.
+        let pad: CGFloat = 1.25
+        let r = min(cornerRadius, min(rect.width, rect.height) - pad * 2)
+        let x = rect.maxX - pad
+        let y = rect.maxY - pad
+        var path = Path()
+        path.move(to: CGPoint(x: x, y: rect.minY + pad))
+        path.addLine(to: CGPoint(x: x, y: y - r))
+        path.addArc(
+            center: CGPoint(x: x - r, y: y - r),
+            radius: r,
+            startAngle: .degrees(0),
+            endAngle: .degrees(90),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: rect.minX + pad, y: y))
+        return path
+    }
+}
+
+/// Compact calendar chrome for far jumps — borderless AppKit picker so it sits flush in the nested popover.
+private struct FarJumpDatePicker: View {
+    @EnvironmentObject private var appearanceStore: AppearanceStore
+    let selection: Date
+    let onSelect: (Date) -> Void
+
+    @State private var dragOriginScale: Double?
+
+    private var scale: CGFloat { CGFloat(appearanceStore.datePickerScale) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("header.pick_date")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+
+            // Bounds/frame scaling inside ScalingDatePickerView — outer chrome hugs this size.
+            BorderlessCalendarDatePicker(date: selection, scale: scale, onChange: onSelect)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .overlay(alignment: .bottomTrailing) {
+            CornerResizeGrip()
+                .frame(width: 14, height: 14)
+                .foregroundStyle(.secondary.opacity(0.7))
+                .padding(.trailing, 6)
+                .padding(.bottom, 4)
+                .contentShape(Rectangle())
+                .help(Text("menu.resize_date_picker"))
+                .accessibilityLabel(Text("menu.resize_date_picker"))
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.crosshair.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            if dragOriginScale == nil {
+                                dragOriginScale = appearanceStore.datePickerScale
+                            }
+                            let delta = (value.translation.width + value.translation.height) / 2
+                            let next = (dragOriginScale ?? appearanceStore.datePickerScale) + Double(delta) / 180
+                            appearanceStore.datePickerScale = next
+                        }
+                        .onEnded { _ in
+                            dragOriginScale = nil
+                        }
+                )
+        }
+        .fixedSize()
+    }
+}
+
+/// Borderless calendar `NSDatePicker` scaled via AppKit bounds/frame mapping (hugs scaled size).
+private struct BorderlessCalendarDatePicker: NSViewRepresentable {
+    var date: Date
+    var scale: CGFloat
+    var onChange: (Date) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> ScalingDatePickerView {
+        let view = ScalingDatePickerView()
+        view.scale = scale
+        view.picker.dateValue = date
+        view.picker.target = context.coordinator
+        view.picker.action = #selector(Coordinator.valueChanged(_:))
+        return view
+    }
+
+    func updateNSView(_ view: ScalingDatePickerView, context: Context) {
+        context.coordinator.onChange = onChange
+        if abs(view.scale - scale) > 0.000_1 {
+            view.scale = scale
+        }
+        let keyed = MeetingDayWindow.startOfDay(date)
+        if MeetingDayWindow.startOfDay(view.picker.dateValue) != keyed {
+            view.picker.dateValue = keyed
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var onChange: (Date) -> Void
+
+        init(onChange: @escaping (Date) -> Void) {
+            self.onChange = onChange
+        }
+
+        @objc func valueChanged(_ sender: NSDatePicker) {
+            onChange(sender.dateValue)
+        }
+    }
+}
+
+/// Calendar picker whose header ● (between ◀ ▶) jumps to the current civil day / month.
+private final class TodayAwareDatePicker: NSDatePicker {
+    override func mouseDown(with event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        if isInTodayControl(loc) {
+            dateValue = MeetingDayWindow.startOfDay(Date())
+            sendAction(action, to: target)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    /// Middle control in the trailing ◀ ● ▶ cluster at the top of the calendar.
+    private func isInTodayControl(_ p: NSPoint) -> Bool {
+        let headerH: CGFloat = 28
+        let inHeader = isFlipped
+            ? (p.y >= 0 && p.y <= headerH)
+            : (p.y >= bounds.height - headerH && p.y <= bounds.height)
+        guard inHeader else { return false }
+
+        // Three ~18pt controls; middle third is ● (“today”).
+        let clusterW: CGFloat = 54
+        let clusterMinX = bounds.maxX - clusterW - 4
+        guard p.x >= clusterMinX, p.x <= bounds.maxX - 4 else { return false }
+        let x = p.x - clusterMinX
+        let third = clusterW / 3
+        return x >= third && x < 2 * third
+    }
+}
+
+/// `frame` = scaled size (for SwiftUI / popover), `bounds` = intrinsic calendar size — AppKit scales the picker to fill.
+private final class ScalingDatePickerView: NSView {
+    let picker: TodayAwareDatePicker = {
+        let p = TodayAwareDatePicker(frame: .zero)
+        p.datePickerStyle = .clockAndCalendar
+        p.datePickerElements = [.yearMonthDay]
+        p.datePickerMode = .single
+        p.isBordered = false
+        p.drawsBackground = false
+        p.focusRingType = .none
+        p.calendar = .current
+        p.locale = .current
+        return p
+    }()
+
+    var scale: CGFloat = 1 {
+        didSet {
+            guard abs(scale - oldValue) > 0.000_1 else { return }
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
+    }
+
+    private var baseSize = NSSize(width: 198, height: 148)
+
+    override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: ceil(baseSize.width * scale), height: ceil(baseSize.height * scale))
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addSubview(picker)
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshBaseSize()
+        syncBoundsToBaseSize()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // Keep bounds at the unscaled calendar size so AppKit magnifies content into `frame`.
+        syncBoundsToBaseSize()
+    }
+
+    override func layout() {
+        super.layout()
+        refreshBaseSize()
+        syncBoundsToBaseSize()
+        picker.frame = NSRect(origin: .zero, size: baseSize)
+    }
+
+    private func syncBoundsToBaseSize() {
+        let next = NSRect(origin: .zero, size: baseSize)
+        if bounds.size != baseSize {
+            bounds = next
+        }
+    }
+
+    private func refreshBaseSize() {
+        picker.sizeToFit()
+        let fitted = picker.fittingSize
+        guard fitted.width > 1, fitted.height > 1 else { return }
+        if fitted != baseSize {
+            baseSize = fitted
+            invalidateIntrinsicContentSize()
+        }
+    }
 }
 
 private struct JoinSettingsView: View {

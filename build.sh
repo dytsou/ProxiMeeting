@@ -7,9 +7,12 @@ cd "$SCRIPT_DIR"
 
 bash scripts/sync-info-plist-version.sh
 
-APP_NAME="${APP_NAME:-ProxiMeeting}"
-if [ "$APP_NAME" = "ProxiMeeting" ]; then
+# Local default matches Makefile (beta beside release). CI/release: APP_NAME=ProxiMeeting ./build.sh
+APP_NAME="${APP_NAME:-ProxiMeetingBeta}"
+if [[ "$APP_NAME" == "ProxiMeeting" ]]; then
 	BUNDLE_ID="com.proximeeting.app"
+elif [[ "$APP_NAME" == "ProxiMeetingBeta" ]]; then
+	BUNDLE_ID="com.proximeeting.app.beta"
 else
 	BUNDLE_ID="com.proximeeting.app.traytest"
 fi
@@ -73,7 +76,7 @@ sed -e "s/\$(PRODUCT_BUNDLE_IDENTIFIER)/$BUNDLE_ID/g" \
     -e "s/\$(DEVELOPMENT_LANGUAGE)/en/g" \
     "$SRC/Info.plist" > "$APP/Contents/Info.plist"
 
-if [ "$APP_NAME" != "ProxiMeeting" ]; then
+if [[ "$APP_NAME" != "ProxiMeeting" ]]; then
 	echo "==> Alternate build: stripping URL scheme (avoid duplicate proximeeting:// handlers with shipped app)."
 	/usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi

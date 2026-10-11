@@ -4,11 +4,21 @@
 
 /* Header */
 "header.title" = "Today's Meetings";
+"header.title.other_day" = "Meetings";
 "header.refresh" = "Refresh";
+"header.pick_date" = "Choose a date";
 
-/* Tabs */
-"tab.today" = "Today";
-"tab.tomorrow" = "Tomorrow";
+/* Day strip */
+"strip.day_selection" = "Browse day";
+"strip.a11y.value_one" = "%@, %d meeting";
+"strip.a11y.value_other" = "%@, %d meetings";
+
+/* Back to today (header icon help / a11y) */
+"ribbon.back_today" = "Back to today";
+
+/* Menu chrome */
+"menu.resize_list" = "Drag to resize list";
+"menu.resize_date_picker" = "Drag to resize calendar";
 
 /* Auth */
 "auth.required" = "Calendar access required";
@@ -16,7 +26,7 @@
 
 /* Empty state */
 "empty.no_meetings" = "No more meetings today";
-"empty.no_meetings_tomorrow" = "No more meetings tomorrow";
+"empty.no_meetings_on_day" = "No meetings on %@";
 
 /* Meeting row */
 "row.in_progress" = "In Progress";

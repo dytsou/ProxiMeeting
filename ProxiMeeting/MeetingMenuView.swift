@@ -49,9 +49,10 @@ struct MeetingMenuView: View {
             HeaderView(
                 browseDay: browseDay,
                 showJoinSettings: $showJoinSettings,
-                showDatePicker: $showDatePicker
+                showDatePicker: $showDatePicker,
+                onReturnToToday: { selectBrowseDay(today) }
             )
-            if !isBrowsingToday {
+            if !isBrowsingToday, manager.nextMeeting != nil {
                 YouAreHereRibbon(onReturnToToday: { selectBrowseDay(today) })
             }
             Divider()
@@ -101,18 +102,7 @@ struct MeetingMenuView: View {
                 .environmentObject(appearanceStore)
         }
         .popover(isPresented: $showDatePicker, arrowEdge: .bottom) {
-            DatePicker(
-                "",
-                selection: Binding(
-                    get: { browseDay },
-                    set: { selectBrowseDay($0) }
-                ),
-                displayedComponents: .date
-            )
-            .datePickerStyle(.graphical)
-            .labelsHidden()
-            .padding(8)
-            .frame(width: 280)
+            FarJumpDatePicker(selection: browseDay, onSelect: selectBrowseDay)
         }
     }
 
@@ -189,6 +179,7 @@ private struct HeaderView: View {
     let browseDay: Date
     @Binding var showJoinSettings: Bool
     @Binding var showDatePicker: Bool
+    var onReturnToToday: () -> Void
 
     private var isToday: Bool {
         MeetingDayWindow.isSameCalendarDay(browseDay, Date())
@@ -216,8 +207,18 @@ private struct HeaderView: View {
                     .help(Text("header.pick_date"))
                     .accessibilityLabel(Text("header.pick_date"))
                 }
-                Spacer()
+                Spacer(minLength: 8)
                 HStack(spacing: 10) {
+                    if !isToday {
+                        Button(action: onReturnToToday) {
+                            Image(systemName: "location.fill")
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help(Text("ribbon.back_today"))
+                        .accessibilityLabel(Text("ribbon.back_today"))
+                    }
+
                     Button {
                         manager.fetchMeetings()
                     } label: {
@@ -248,44 +249,33 @@ private struct HeaderView: View {
 
 // MARK: - You-Are-Here ribbon
 
+/// Off-today chrome: today's next meeting summary. Snap-back lives in the header.
 private struct YouAreHereRibbon: View {
     @EnvironmentObject var manager: CalendarManager
     let onReturnToToday: () -> Void
 
     var body: some View {
-        Button(action: onReturnToToday) {
-            HStack(spacing: 8) {
-                Image(systemName: "location.fill")
-                    .font(.system(size: 10))
-                if let next = manager.nextMeeting {
+        if let next = manager.nextMeeting {
+            Button(action: onReturnToToday) {
+                HStack(spacing: 8) {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 10))
                     Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
                         .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    Text("ribbon.back_today")
-                        .font(.system(size: 11, weight: .semibold))
-                } else {
-                    Text("ribbon.back_today")
-                        .font(.system(size: 11, weight: .semibold))
-                    Spacer(minLength: 0)
                 }
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(0.08))
             }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.accentColor.opacity(0.08))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(ribbonAccessibilityLabel)
-        .accessibilityHint(Text("ribbon.back_today"))
-    }
-
-    private var ribbonAccessibilityLabel: Text {
-        if let next = manager.nextMeeting {
-            Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
-        } else {
-            Text("ribbon.back_today")
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
+            )
+            .accessibilityHint(Text("ribbon.back_today"))
         }
     }
 }
@@ -735,6 +725,79 @@ private struct PopoverMaterialBackgroundView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+// MARK: - Far-jump date picker (header)
+
+/// Compact calendar chrome for far jumps — borderless AppKit picker so it sits flush in the nested popover.
+private struct FarJumpDatePicker: View {
+    let selection: Date
+    let onSelect: (Date) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("header.pick_date")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityAddTraits(.isHeader)
+
+            BorderlessCalendarDatePicker(date: selection, onChange: onSelect)
+                .fixedSize()
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+    }
+}
+
+/// `NSDatePicker` without the default blue bezel / focus ring that SwiftUI `.graphical` draws in a nested popover.
+private struct BorderlessCalendarDatePicker: NSViewRepresentable {
+    var date: Date
+    var onChange: (Date) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> NSDatePicker {
+        let picker = NSDatePicker(frame: .zero)
+        picker.datePickerStyle = .clockAndCalendar
+        picker.datePickerElements = [.yearMonthDay]
+        picker.datePickerMode = .single
+        picker.isBordered = false
+        picker.drawsBackground = false
+        picker.focusRingType = .none
+        picker.calendar = .current
+        picker.locale = .current
+        picker.dateValue = date
+        picker.target = context.coordinator
+        picker.action = #selector(Coordinator.valueChanged(_:))
+        picker.setContentHuggingPriority(.required, for: .horizontal)
+        picker.setContentHuggingPriority(.required, for: .vertical)
+        picker.setContentCompressionResistancePriority(.required, for: .horizontal)
+        picker.setContentCompressionResistancePriority(.required, for: .vertical)
+        return picker
+    }
+
+    func updateNSView(_ picker: NSDatePicker, context: Context) {
+        context.coordinator.onChange = onChange
+        let keyed = MeetingDayWindow.startOfDay(date)
+        if MeetingDayWindow.startOfDay(picker.dateValue) != keyed {
+            picker.dateValue = keyed
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var onChange: (Date) -> Void
+
+        init(onChange: @escaping (Date) -> Void) {
+            self.onChange = onChange
+        }
+
+        @objc func valueChanged(_ sender: NSDatePicker) {
+            onChange(sender.dateValue)
+        }
+    }
 }
 
 private struct JoinSettingsView: View {

@@ -75,6 +75,8 @@ class CalendarManager: ObservableObject {
     private var selectionCancellable: AnyCancellable?
     private var fetchTask: Task<Void, Never>?
     private var lastFetchAt: Date?
+    /// Bounds stamped with the last fetch that passed the coalesce gate (skip coalesce when window moved).
+    private var lastFetchedBounds: MeetingDayWindow.Bounds?
 
     init(calendarSelection: CalendarSelectionStore) {
         self.calendarSelection = calendarSelection
@@ -113,22 +115,26 @@ class CalendarManager: ObservableObject {
 
     // MARK: Authorization
 
+    /// Reads authorization and starts refresh when already granted. Does **not** prompt —
+    /// `.notDetermined` stays unauthorized until the user taps Grant Access (`requestAccess()`).
     func checkAndFetch() {
         let status = EKEventStore.authorizationStatus(for: .event)
         switch status {
         case .authorized, .fullAccess:
             isAuthorized = true
             startRefreshing()
-        case .notDetermined, .restricted:
-            requestAccess()
+        case .notDetermined:
+            isAuthorized = false
         default:
             isAuthorized = false
         }
     }
 
+    /// User-gesture path: activate the app, then show the Calendar permission sheet.
     func requestAccess() {
+        NSApp.activate(ignoringOtherApps: true)
         if #available(macOS 14.0, *) {
-            Task {
+            Task { @MainActor in
                 do {
                     let granted = try await eventStore.requestFullAccessToEvents()
                     isAuthorized = granted
@@ -181,13 +187,18 @@ class CalendarManager: ObservableObject {
             if debounceSeconds > 0 {
                 let ns = UInt64(debounceSeconds * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: ns)
+                if Task.isCancelled { return }
             }
 
             // Coalesce accidental back-to-back triggers (timer tick + EKEventStoreChanged, etc).
-            if let lastFetchAt, Date().timeIntervalSince(lastFetchAt) < 0.05 {
+            // Never coalesce across a windowBounds change — far-jump / edge extend need a real refill.
+            let bounds = windowBounds
+            if let lastFetchAt, Date().timeIntervalSince(lastFetchAt) < 0.05,
+               lastFetchedBounds == bounds {
                 return
             }
             lastFetchAt = Date()
+            lastFetchedBounds = bounds
             performFetchMeetings()
         }
     }

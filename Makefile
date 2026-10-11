@@ -26,15 +26,20 @@ SWIFT_SRCS := \
 	$(SRC)/String+HalfwidthPrefix.swift \
 	$(SRC)/UpdateChecker.swift
 
-.PHONY: all build sync-app-version setup clean install reset
+.PHONY: all build test sync-app-version setup clean install reset
 
 all: build
+
+## Run SPM unit tests (ProxiMeetingCore / MeetingDayWindow). Prefer arm64 host toolchain.
+test:
+	@echo "==> Running swift test..."
+	@arch -arm64 swift test 2>/dev/null || swift test
 
 ## Sync CFBundleShortVersionString and CFBundleVersion from package.json into ProxiMeeting/Info.plist
 sync-app-version:
 	@bash scripts/sync-info-plist-version.sh
 
-## Build the .app bundle
+## Build the .app bundle (does not run tests — use `make test`)
 build: sync-app-version
 	@echo "==> Cleaning previous build..."
 	@rm -rf "$(APP)"

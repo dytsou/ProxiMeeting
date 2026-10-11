@@ -446,6 +446,7 @@ class StatusBarController: NSObject {
             BrowseDayKeyboardGate.allowsArrowCapture = false
             popover.performClose(nil)
         } else {
+            NSApp.activate(ignoringOtherApps: true)
             BrowseDayKeyboardGate.popoverIsShown = true
             NotificationCenter.default.post(name: .proxiMeetingPopoverWillShow, object: nil)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -457,11 +458,12 @@ class StatusBarController: NSObject {
     func showPopoverAnchoredAtStatusItem() {
         guard let button = statusItem.button else { return }
         guard !popover.isShown else {
+            // Already open: re-key only. Do not post willShow (that resets browse day).
             BrowseDayKeyboardGate.popoverIsShown = true
-            NotificationCenter.default.post(name: .proxiMeetingPopoverWillShow, object: nil)
             popover.contentViewController?.view.window?.makeKey()
             return
         }
+        NSApp.activate(ignoringOtherApps: true)
         BrowseDayKeyboardGate.popoverIsShown = true
         NotificationCenter.default.post(name: .proxiMeetingPopoverWillShow, object: nil)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)

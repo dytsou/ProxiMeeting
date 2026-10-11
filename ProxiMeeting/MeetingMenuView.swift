@@ -35,6 +35,8 @@ struct MeetingMenuView: View {
     @EnvironmentObject var calendarSelection: CalendarSelectionStore
     @EnvironmentObject var appearanceStore: AppearanceStore
     @State private var browseDay: Date = MeetingDayWindow.startOfDay(Date())
+    /// When true, browse day should follow civil "today" across midnight; false after an explicit off-today pick.
+    @State private var tracksCivilToday = true
     @State private var showJoinSettings = false
     @State private var showDatePicker = false
     @State private var keyMonitor: Any?
@@ -81,6 +83,10 @@ struct MeetingMenuView: View {
             guard let offset = note.object as? Int else { return }
             stepBrowseDay(by: offset)
         }
+        // CalendarManager refreshes ~60s; reuse that signal to snap browse day when civil day rolls.
+        .onReceive(manager.$nextMeeting.map { _ in () }) { _ in
+            reconcileBrowseDayWithCivilToday()
+        }
         .onChange(of: showJoinSettings) { _ in updateArrowCaptureGate() }
         .onChange(of: showDatePicker) { _ in updateArrowCaptureGate() }
         .onDisappear {
@@ -114,6 +120,7 @@ struct MeetingMenuView: View {
         showDatePicker = false
         let day = MeetingDayWindow.startOfDay(Date())
         browseDay = day
+        tracksCivilToday = true
         manager.resetWindowAroundToday()
         updateArrowCaptureGate()
     }
@@ -121,9 +128,19 @@ struct MeetingMenuView: View {
     private func selectBrowseDay(_ day: Date) {
         let keyed = MeetingDayWindow.startOfDay(day)
         browseDay = keyed
+        tracksCivilToday = MeetingDayWindow.isSameCalendarDay(keyed, Date())
         manager.ensureWindow(for: keyed)
         showDatePicker = false
         updateArrowCaptureGate()
+    }
+
+    /// If the user was browsing "today" and the civil day advanced while the popover stayed open, snap forward.
+    private func reconcileBrowseDayWithCivilToday() {
+        guard tracksCivilToday else { return }
+        let day = MeetingDayWindow.startOfDay(Date())
+        guard !MeetingDayWindow.isSameCalendarDay(browseDay, day) else { return }
+        browseDay = day
+        manager.resetWindowAroundToday()
     }
 
     private func stepBrowseDay(by offset: Int) {
@@ -209,6 +226,7 @@ private struct HeaderView: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text("header.refresh"))
+                    .accessibilityLabel(Text("header.refresh"))
 
                     Button {
                         showJoinSettings = true
@@ -218,6 +236,7 @@ private struct HeaderView: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text("footer.settings"))
+                    .accessibilityLabel(Text("footer.settings"))
                 }
             }
         }
@@ -234,27 +253,39 @@ private struct YouAreHereRibbon: View {
     let onReturnToToday: () -> Void
 
     var body: some View {
-        if let next = manager.nextMeeting {
-            Button(action: onReturnToToday) {
-                HStack(spacing: 8) {
-                    Image(systemName: "location.fill")
-                        .font(.system(size: 10))
+        Button(action: onReturnToToday) {
+            HStack(spacing: 8) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 10))
+                if let next = manager.nextMeeting {
                     Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
                         .font(.system(size: 11, weight: .medium))
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Text("ribbon.back_today")
                         .font(.system(size: 11, weight: .semibold))
+                } else {
+                    Text("ribbon.back_today")
+                        .font(.system(size: 11, weight: .semibold))
+                    Spacer(minLength: 0)
                 }
-                .foregroundStyle(Color.accentColor)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.08))
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(Text("ribbon.back_today"))
-            .accessibilityHint(Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title)))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.08))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(ribbonAccessibilityLabel)
+        .accessibilityHint(Text("ribbon.back_today"))
+    }
+
+    private var ribbonAccessibilityLabel: Text {
+        if let next = manager.nextMeeting {
+            Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
+        } else {
+            Text("ribbon.back_today")
         }
     }
 }

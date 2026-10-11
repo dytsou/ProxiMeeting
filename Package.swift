@@ -40,10 +40,12 @@ let package = Package(
                 "Info.plist",
                 "ProxiMeeting.entitlements",
                 "Assets.xcassets",
-                "en.lproj",
-                "zh-Hant.lproj",
                 "MeetingDayWindow.swift",
                 "screenshot.jpg"
+            ],
+            resources: [
+                .process("en.lproj"),
+                .process("zh-Hant.lproj")
             ],
             linkerSettings: [
                 .linkedFramework("SwiftUI"),

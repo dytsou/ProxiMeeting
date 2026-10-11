@@ -4,11 +4,18 @@
 
 /* Header */
 "header.title" = "今日會議";
+"header.title.other_day" = "會議";
 "header.refresh" = "重新整理";
+"header.pick_date" = "選擇日期";
 
-/* Tabs */
-"tab.today" = "今天";
-"tab.tomorrow" = "明天";
+/* Day strip */
+"strip.day_selection" = "瀏覽日期";
+"strip.a11y.value_one" = "%@，%d 場會議";
+"strip.a11y.value_other" = "%@，%d 場會議";
+
+/* You-Are-Here ribbon */
+"ribbon.today_next" = "今天 · %@";
+"ribbon.back_today" = "回到今天";
 
 /* Auth */
 "auth.required" = "需要行事曆存取權限";
@@ -16,7 +23,7 @@
 
 /* Empty state */
 "empty.no_meetings" = "今天沒有更多會議";
-"empty.no_meetings_tomorrow" = "明天沒有更多會議";
+"empty.no_meetings_on_day" = "%@ 沒有會議";
 
 /* Meeting row */
 "row.in_progress" = "進行中";

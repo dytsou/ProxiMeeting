@@ -101,7 +101,7 @@ final class ApplicationSession {
 final class ProxiMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
     weak var session: ApplicationSession?
 
-    func applicationWillFinishLaunching(_ notification: Notification) {
+    func applicationWillFinishLaunching(_: Notification) {
         // #region agent log
         AgentDebugNDJSON.log(
             hypothesisId: "H5",
@@ -126,7 +126,7 @@ final class ProxiMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
+    func applicationDidFinishLaunching(_: Notification) {
         // #region agent log
         AgentDebugNDJSON.log(
             hypothesisId: "H1",
@@ -217,7 +217,7 @@ final class ProxiMeetingApplicationDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    func applicationWillTerminate(_: Notification) {
         // #region agent log
         AgentDebugNDJSON.log(
             hypothesisId: "H3",
@@ -346,9 +346,13 @@ class StatusBarController: NSObject {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.popover.isShown else { return }
+                BrowseDayKeyboardGate.popoverIsShown = false
+                BrowseDayKeyboardGate.allowsArrowCapture = false
                 self.popover.performClose(nil)
             }
         }
+
+        popover.delegate = self
 
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
@@ -438,8 +442,12 @@ class StatusBarController: NSObject {
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
         if popover.isShown {
+            BrowseDayKeyboardGate.popoverIsShown = false
+            BrowseDayKeyboardGate.allowsArrowCapture = false
             popover.performClose(nil)
         } else {
+            BrowseDayKeyboardGate.popoverIsShown = true
+            NotificationCenter.default.post(name: .proxiMeetingPopoverWillShow, object: nil)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
@@ -449,9 +457,13 @@ class StatusBarController: NSObject {
     func showPopoverAnchoredAtStatusItem() {
         guard let button = statusItem.button else { return }
         guard !popover.isShown else {
+            BrowseDayKeyboardGate.popoverIsShown = true
+            NotificationCenter.default.post(name: .proxiMeetingPopoverWillShow, object: nil)
             popover.contentViewController?.view.window?.makeKey()
             return
         }
+        BrowseDayKeyboardGate.popoverIsShown = true
+        NotificationCenter.default.post(name: .proxiMeetingPopoverWillShow, object: nil)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
@@ -521,5 +533,12 @@ class StatusBarController: NSObject {
         let plistURL = bundleURL.appendingPathComponent("Contents/Info.plist")
         guard let dict = NSDictionary(contentsOf: plistURL) as? [String: Any] else { return nil }
         return (dict["CFBundleShortVersionString"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension StatusBarController: NSPopoverDelegate {
+    func popoverDidClose(_: Notification) {
+        BrowseDayKeyboardGate.popoverIsShown = false
+        BrowseDayKeyboardGate.allowsArrowCapture = false
     }
 }

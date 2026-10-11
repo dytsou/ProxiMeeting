@@ -1,35 +1,64 @@
 import SwiftUI
 import AppKit
 import EventKit
+#if canImport(ProxiMeetingCore)
+import ProxiMeetingCore
+#endif
 
 extension Notification.Name {
     /// Posted before opening a meeting in the browser so the menu popover can dismiss (browser preference or native fallback).
     static let proxiMeetingDismissPopover = Notification.Name("ProxiMeetingDismissPopover")
     /// Opens the Join / Settings sheet (Raycast extension and `proximeeting://open-preferences`).
     static let proxiMeetingOpenJoinSettings = Notification.Name("ProxiMeetingOpenJoinSettings")
+    /// Posted when the menu popover is about to show so browse day resets to today.
+    static let proxiMeetingPopoverWillShow = Notification.Name("ProxiMeetingPopoverWillShow")
+    /// Posted from the local key monitor; `object` is an `Int` day offset (−1 / +1).
+    static let proxiMeetingBrowseDayStep = Notification.Name("ProxiMeetingBrowseDayStep")
+}
+
+/// Gates local arrow-key capture so DatePicker / closed popover still receive keys.
+@MainActor
+enum BrowseDayKeyboardGate {
+    /// True only while the menu popover is shown (set from `StatusBarController`).
+    static var popoverIsShown = false
+    /// False while DatePicker / Join Settings are up.
+    static var allowsArrowCapture = false
+
+    static var capturesArrows: Bool { popoverIsShown && allowsArrowCapture }
 }
 
 // MARK: - Root Menu View
-
-enum MeetingTab { case today, tomorrow }
 
 struct MeetingMenuView: View {
     @EnvironmentObject var manager: CalendarManager
     @EnvironmentObject var joinPreferences: JoinPreferenceStore
     @EnvironmentObject var calendarSelection: CalendarSelectionStore
     @EnvironmentObject var appearanceStore: AppearanceStore
-    @State private var selectedTab: MeetingTab = .today
+    @State private var browseDay: Date = MeetingDayWindow.startOfDay(Date())
     @State private var showJoinSettings = false
+    @State private var showDatePicker = false
+    @State private var keyMonitor: Any?
 
-    private var defaultTab: MeetingTab {
-        manager.upcomingMeetings.isEmpty ? .tomorrow : .today
-    }
+    private var today: Date { MeetingDayWindow.startOfDay(Date()) }
+    private var isBrowsingToday: Bool { MeetingDayWindow.isSameCalendarDay(browseDay, today) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HeaderView(selectedTab: $selectedTab, showJoinSettings: $showJoinSettings)
+            HeaderView(
+                browseDay: browseDay,
+                showJoinSettings: $showJoinSettings,
+                showDatePicker: $showDatePicker
+            )
+            if !isBrowsingToday {
+                YouAreHereRibbon(onReturnToToday: { selectBrowseDay(today) })
+            }
             Divider()
-            ContentView(selectedTab: selectedTab)
+            DayChipStrip(
+                browseDay: browseDay,
+                onSelect: selectBrowseDay
+            )
+            Divider()
+            ContentView(browseDay: browseDay)
             Divider()
             FooterView()
         }
@@ -37,9 +66,26 @@ struct MeetingMenuView: View {
         .environmentObject(manager)
         .environmentObject(joinPreferences)
         .environmentObject(calendarSelection)
-        .onAppear { selectedTab = defaultTab }
+        .onAppear {
+            resetBrowseToToday()
+            installKeyMonitor()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingPopoverWillShow)) { _ in
+            resetBrowseToToday()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingOpenJoinSettings)) { _ in
             showJoinSettings = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingBrowseDayStep)) { note in
+            guard BrowseDayKeyboardGate.capturesArrows else { return }
+            guard let offset = note.object as? Int else { return }
+            stepBrowseDay(by: offset)
+        }
+        .onChange(of: showJoinSettings) { _ in updateArrowCaptureGate() }
+        .onChange(of: showDatePicker) { _ in updateArrowCaptureGate() }
+        .onDisappear {
+            BrowseDayKeyboardGate.allowsArrowCapture = false
+            removeKeyMonitor()
         }
         .sheet(isPresented: $showJoinSettings) {
             JoinSettingsView()
@@ -48,6 +94,74 @@ struct MeetingMenuView: View {
                 .environmentObject(calendarSelection)
                 .environmentObject(appearanceStore)
         }
+        .popover(isPresented: $showDatePicker, arrowEdge: .bottom) {
+            DatePicker(
+                "",
+                selection: Binding(
+                    get: { browseDay },
+                    set: { selectBrowseDay($0) }
+                ),
+                displayedComponents: .date
+            )
+            .datePickerStyle(.graphical)
+            .labelsHidden()
+            .padding(8)
+            .frame(width: 280)
+        }
+    }
+
+    private func resetBrowseToToday() {
+        showDatePicker = false
+        let day = MeetingDayWindow.startOfDay(Date())
+        browseDay = day
+        manager.resetWindowAroundToday()
+        updateArrowCaptureGate()
+    }
+
+    private func selectBrowseDay(_ day: Date) {
+        let keyed = MeetingDayWindow.startOfDay(day)
+        browseDay = keyed
+        manager.ensureWindow(for: keyed)
+        showDatePicker = false
+        updateArrowCaptureGate()
+    }
+
+    private func stepBrowseDay(by offset: Int) {
+        let next = MeetingDayWindow.stepDay(browseDay, by: offset)
+        selectBrowseDay(next)
+    }
+
+    private func updateArrowCaptureGate() {
+        BrowseDayKeyboardGate.allowsArrowCapture = !showJoinSettings && !showDatePicker
+    }
+
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard BrowseDayKeyboardGate.capturesArrows else { return event }
+            guard event.window?.isKeyWindow == true else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if !mods.intersection([.command, .option, .control, .shift]).isEmpty {
+                return event
+            }
+            switch event.keyCode {
+            case 123: // left arrow
+                NotificationCenter.default.post(name: .proxiMeetingBrowseDayStep, object: -1)
+                return nil
+            case 124: // right arrow
+                NotificationCenter.default.post(name: .proxiMeetingBrowseDayStep, object: 1)
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
     }
 }
 
@@ -55,18 +169,35 @@ struct MeetingMenuView: View {
 
 private struct HeaderView: View {
     @EnvironmentObject var manager: CalendarManager
-    @Binding var selectedTab: MeetingTab
+    let browseDay: Date
     @Binding var showJoinSettings: Bool
+    @Binding var showDatePicker: Bool
+
+    private var isToday: Bool {
+        MeetingDayWindow.isSameCalendarDay(browseDay, Date())
+    }
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("header.title")
+                    Text(isToday ? "header.title" : "header.title.other_day")
                         .font(.headline)
-                    Text(Date(), format: .dateTime.year().month(.wide).day().weekday(.wide))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Button {
+                        showDatePicker = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(browseDay, format: .dateTime.year().month(.wide).day().weekday(.wide))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .help(Text("header.pick_date"))
+                    .accessibilityLabel(Text("header.pick_date"))
                 }
                 Spacer()
                 HStack(spacing: 10) {
@@ -89,12 +220,6 @@ private struct HeaderView: View {
                     .help(Text("footer.settings"))
                 }
             }
-
-            Picker("", selection: $selectedTab) {
-                Text("tab.today").tag(MeetingTab.today)
-                Text("tab.tomorrow").tag(MeetingTab.tomorrow)
-            }
-            .pickerStyle(.segmented)
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
@@ -102,19 +227,169 @@ private struct HeaderView: View {
     }
 }
 
+// MARK: - You-Are-Here ribbon
+
+private struct YouAreHereRibbon: View {
+    @EnvironmentObject var manager: CalendarManager
+    let onReturnToToday: () -> Void
+
+    var body: some View {
+        if let next = manager.nextMeeting {
+            Button(action: onReturnToToday) {
+                HStack(spacing: 8) {
+                    Image(systemName: "location.fill")
+                        .font(.system(size: 10))
+                    Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title))
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Text("ribbon.back_today")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.accentColor.opacity(0.08))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("ribbon.back_today"))
+            .accessibilityHint(Text(String(format: NSLocalizedString("ribbon.today_next", comment: ""), next.title)))
+        }
+    }
+}
+
+// MARK: - Day chip strip
+
+private struct DayChipStrip: View {
+    @EnvironmentObject var manager: CalendarManager
+    let browseDay: Date
+    let onSelect: (Date) -> Void
+
+    private var today: Date { MeetingDayWindow.startOfDay(Date()) }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(manager.daysInWindow, id: \.self) { day in
+                        DayChip(
+                            day: day,
+                            isToday: MeetingDayWindow.isSameCalendarDay(day, today),
+                            isSelected: MeetingDayWindow.isSameCalendarDay(day, browseDay),
+                            meetingCount: manager.meetingCount(for: day)
+                        ) {
+                            onSelect(day)
+                        }
+                        .id(day)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+            }
+            .onAppear {
+                proxy.scrollTo(MeetingDayWindow.startOfDay(browseDay), anchor: .center)
+            }
+            .onChange(of: browseDay) { newDay in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(MeetingDayWindow.startOfDay(newDay), anchor: .center)
+                }
+            }
+            .onChange(of: manager.windowBounds) { _ in
+                proxy.scrollTo(MeetingDayWindow.startOfDay(browseDay), anchor: .center)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("strip.day_selection"))
+        .accessibilityValue(Text(accessibilityValue))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment:
+                onSelect(MeetingDayWindow.stepDay(browseDay, by: 1))
+            case .decrement:
+                onSelect(MeetingDayWindow.stepDay(browseDay, by: -1))
+            @unknown default:
+                break
+            }
+        }
+    }
+
+    private var accessibilityValue: String {
+        let count = manager.meetingCount(for: browseDay)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .full
+        formatter.timeStyle = .none
+        let datePart = formatter.string(from: MeetingDayWindow.startOfDay(browseDay))
+        let formatKey = count == 1 ? "strip.a11y.value_one" : "strip.a11y.value_other"
+        return String(format: NSLocalizedString(formatKey, comment: ""), datePart, count)
+    }
+}
+
+private struct DayChip: View {
+    let day: Date
+    let isToday: Bool
+    let isSelected: Bool
+    let meetingCount: Int
+    let action: () -> Void
+
+    private var weekdayLabel: String {
+        day.formatted(.dateTime.weekday(.abbreviated))
+    }
+
+    private var dayNumber: String {
+        day.formatted(.dateTime.day())
+    }
+
+    private var dotCount: Int {
+        MeetingDayWindow.densityDotCount(meetingCount: meetingCount)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Text(weekdayLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.9) : .secondary)
+                Text(dayNumber)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.white : .primary)
+                HStack(spacing: 2) {
+                    ForEach(0..<dotCount, id: \.self) { _ in
+                        Circle()
+                            .fill(isSelected ? Color.white.opacity(0.95) : Color.accentColor.opacity(0.85))
+                            .frame(width: 4, height: 4)
+                    }
+                }
+                .frame(height: 4)
+            }
+            .frame(width: 40, height: 52)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? Color.accentColor : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isToday && !isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Content
 
 private struct ContentView: View {
     @EnvironmentObject var manager: CalendarManager
-    let selectedTab: MeetingTab
+    let browseDay: Date
 
     var body: some View {
         if !manager.isAuthorized {
             UnauthorizedView()
         } else {
-            let meetings = selectedTab == .today ? manager.upcomingMeetings : manager.tomorrowMeetings
+            let meetings = manager.meetings(for: browseDay)
             if meetings.isEmpty {
-                NoMeetingsView(selectedTab: selectedTab)
+                NoMeetingsView(browseDay: browseDay)
             } else {
                 MeetingListView(meetings: meetings)
             }
@@ -143,25 +418,32 @@ private struct UnauthorizedView: View {
 }
 
 private struct NoMeetingsView: View {
-    let selectedTab: MeetingTab
+    let browseDay: Date
+
+    private var isToday: Bool {
+        MeetingDayWindow.isSameCalendarDay(browseDay, Date())
+    }
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
             Group {
-                switch selectedTab {
-                case .today:
+                if isToday {
                     Text("empty.no_meetings")
-                case .tomorrow:
-                    Text("empty.no_meetings_tomorrow")
+                } else {
+                    Text(String(format: NSLocalizedString("empty.no_meetings_on_day", comment: ""), dayLabel))
                 }
             }
             .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(16)
-        .id(selectedTab)
+        .id(MeetingDayWindow.startOfDay(browseDay))
+    }
+
+    private var dayLabel: String {
+        browseDay.formatted(.dateTime.month(.abbreviated).day().weekday(.abbreviated))
     }
 }
 

@@ -20,6 +20,7 @@ SWIFT_SRCS := \
 	$(SRC)/JoinPreferenceStore.swift \
 	$(SRC)/AppearanceStore.swift \
 	$(SRC)/AppDebug.swift \
+	$(SRC)/MeetingDayWindow.swift \
 	$(SRC)/MeetingMenuView.swift \
 	$(SRC)/ProxiMeetingApp.swift \
 	$(SRC)/String+HalfwidthPrefix.swift \

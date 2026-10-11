@@ -1,8 +1,11 @@
-# Default matches releases / Homebrew. Local diagnostic name: APP_NAME=MeetingTrayTest make install
-# (uses bundle id com.proximeeting.app.traytest so it can run alongside the shipped app and show its own menu bar item)
-APP_NAME ?= ProxiMeeting
+# Local default is ProxiMeetingBeta so it can sit beside the Homebrew/release app.
+# Release / CI: APP_NAME=ProxiMeeting make build
+# Extra diagnostic sibling: APP_NAME=MeetingTrayTest make install
+APP_NAME ?= ProxiMeetingBeta
 ifeq ($(APP_NAME),ProxiMeeting)
 BUNDLE_ID := com.proximeeting.app
+else ifeq ($(APP_NAME),ProxiMeetingBeta)
+BUNDLE_ID := com.proximeeting.app.beta
 else
 BUNDLE_ID := com.proximeeting.app.traytest
 endif
@@ -105,6 +108,7 @@ install: build
 	fi; \
 	pkill -x "$(APP_NAME)" 2>/dev/null || true; \
 	pkill -x ProxiMeeting 2>/dev/null || true; \
+	pkill -x ProxiMeetingBeta 2>/dev/null || true; \
 	pkill -x MeetingTrayTest 2>/dev/null || true; \
 	install_path="$$dest/$(APP)"; \
 	rm -rf "$$install_path"; \
@@ -125,13 +129,13 @@ setup:
 clean:
 	@echo "==> Cleaning..."
 	rm -rf "$(APP)"
-	rm -rf ProxiMeeting.app MeetingTrayTest.app
+	rm -rf ProxiMeeting.app ProxiMeetingBeta.app MeetingTrayTest.app
 	@echo "==> Clearing cached update state (UserDefaults)..."
 	@defaults delete "$(BUNDLE_ID)" updates.availableVersion 2>/dev/null || true
 	@defaults delete "$(BUNDLE_ID)" updates.availableDownloadURL 2>/dev/null || true
 	@defaults delete "$(BUNDLE_ID)" updates.lastUpdateCheckDate 2>/dev/null || true
 	@echo "Done."
 
-## Nuclear environment reset: remove all installs, purge Launch Services via lsregister -gc + -u, wipe ~/Library state, reset Calendar/AddressBook TCC for com.proximeeting.app(.traytest). Prompts for confirmation unless --yes / PROXIMEETING_RESET_YES=1.
+## Nuclear environment reset: remove all installs, purge Launch Services via lsregister -gc + -u, wipe ~/Library state, reset Calendar/AddressBook TCC for com.proximeeting.app(.beta/.traytest). Prompts for confirmation unless --yes / PROXIMEETING_RESET_YES=1.
 reset:
 	@bash scripts/reset-environment.sh

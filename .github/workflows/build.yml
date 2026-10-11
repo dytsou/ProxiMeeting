@@ -82,7 +82,7 @@ jobs:
         run: make test
 
       - name: Build
-        run: make build
+        run: APP_NAME=ProxiMeeting make build
 
       - name: Zip app
         run: zip -r ProxiMeeting.zip ProxiMeeting.app

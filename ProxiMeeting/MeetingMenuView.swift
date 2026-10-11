@@ -207,7 +207,7 @@ private struct HeaderView: View {
                 HStack(spacing: 10) {
                     if !isToday {
                         Button(action: onReturnToToday) {
-                            Image(systemName: "location.fill")
+                            Image(systemName: "house")
                                 .foregroundStyle(Color.accentColor)
                         }
                         .buttonStyle(.plain)

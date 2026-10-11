@@ -172,6 +172,7 @@ struct MeetingMenuView: View {
 
 private struct HeaderView: View {
     @EnvironmentObject var manager: CalendarManager
+    @EnvironmentObject var appearanceStore: AppearanceStore
     let browseDay: Date
     @Binding var showJoinSettings: Bool
     @Binding var showDatePicker: Bool
@@ -206,6 +207,7 @@ private struct HeaderView: View {
                     // Anchor under the date control (not the whole menu) so the picker sits in the header.
                     .popover(isPresented: $showDatePicker, arrowEdge: .top) {
                         FarJumpDatePicker(selection: browseDay, onSelect: onSelectBrowseDay)
+                            .environmentObject(appearanceStore)
                     }
                 }
                 Spacer(minLength: 8)
@@ -738,10 +740,50 @@ private struct PopoverMaterialBackgroundView: NSViewRepresentable {
 
 // MARK: - Far-jump date picker (header)
 
+/// Matches nested `NSPopover` content chrome corner radius on recent macOS.
+private let farJumpPopoverCornerRadius: CGFloat = 10
+
+/// Bottom-trailing resize affordance — ⌝ whose bend matches the popover corner radius.
+private struct CornerResizeGrip: View {
+    var body: some View {
+        CornerResizeGripShape(cornerRadius: farJumpPopoverCornerRadius)
+            .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+    }
+}
+
+private struct CornerResizeGripShape: Shape {
+    var cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        // Keep stroke inside bounds; bend radius mirrors the outer popover frame.
+        let pad: CGFloat = 1.25
+        let r = min(cornerRadius, min(rect.width, rect.height) - pad * 2)
+        let x = rect.maxX - pad
+        let y = rect.maxY - pad
+        var path = Path()
+        path.move(to: CGPoint(x: x, y: rect.minY + pad))
+        path.addLine(to: CGPoint(x: x, y: y - r))
+        path.addArc(
+            center: CGPoint(x: x - r, y: y - r),
+            radius: r,
+            startAngle: .degrees(0),
+            endAngle: .degrees(90),
+            clockwise: false
+        )
+        path.addLine(to: CGPoint(x: rect.minX + pad, y: y))
+        return path
+    }
+}
+
 /// Compact calendar chrome for far jumps — borderless AppKit picker so it sits flush in the nested popover.
 private struct FarJumpDatePicker: View {
+    @EnvironmentObject private var appearanceStore: AppearanceStore
     let selection: Date
     let onSelect: (Date) -> Void
+
+    @State private var dragOriginScale: Double?
+
+    private var scale: CGFloat { CGFloat(appearanceStore.datePickerScale) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -750,49 +792,74 @@ private struct FarJumpDatePicker: View {
                 .foregroundStyle(.secondary)
                 .accessibilityAddTraits(.isHeader)
 
-            BorderlessCalendarDatePicker(date: selection, onChange: onSelect)
-                .fixedSize()
+            // Bounds/frame scaling inside ScalingDatePickerView — outer chrome hugs this size.
+            BorderlessCalendarDatePicker(date: selection, scale: scale, onChange: onSelect)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
-        .padding(.bottom, 12)
+        .padding(.bottom, 8)
+        .overlay(alignment: .bottomTrailing) {
+            CornerResizeGrip()
+                .frame(width: 14, height: 14)
+                .foregroundStyle(.secondary.opacity(0.7))
+                .padding(.trailing, 6)
+                .padding(.bottom, 4)
+                .contentShape(Rectangle())
+                .help(Text("menu.resize_date_picker"))
+                .accessibilityLabel(Text("menu.resize_date_picker"))
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.crosshair.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            if dragOriginScale == nil {
+                                dragOriginScale = appearanceStore.datePickerScale
+                            }
+                            let delta = (value.translation.width + value.translation.height) / 2
+                            let next = (dragOriginScale ?? appearanceStore.datePickerScale) + Double(delta) / 180
+                            appearanceStore.datePickerScale = next
+                        }
+                        .onEnded { _ in
+                            dragOriginScale = nil
+                        }
+                )
+        }
+        .fixedSize()
     }
 }
 
-/// `NSDatePicker` without the default blue bezel / focus ring that SwiftUI `.graphical` draws in a nested popover.
+/// Borderless calendar `NSDatePicker` scaled via AppKit bounds/frame mapping (hugs scaled size).
 private struct BorderlessCalendarDatePicker: NSViewRepresentable {
     var date: Date
+    var scale: CGFloat
     var onChange: (Date) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onChange: onChange)
     }
 
-    func makeNSView(context: Context) -> NSDatePicker {
-        let picker = NSDatePicker(frame: .zero)
-        picker.datePickerStyle = .clockAndCalendar
-        picker.datePickerElements = [.yearMonthDay]
-        picker.datePickerMode = .single
-        picker.isBordered = false
-        picker.drawsBackground = false
-        picker.focusRingType = .none
-        picker.calendar = .current
-        picker.locale = .current
-        picker.dateValue = date
-        picker.target = context.coordinator
-        picker.action = #selector(Coordinator.valueChanged(_:))
-        picker.setContentHuggingPriority(.required, for: .horizontal)
-        picker.setContentHuggingPriority(.required, for: .vertical)
-        picker.setContentCompressionResistancePriority(.required, for: .horizontal)
-        picker.setContentCompressionResistancePriority(.required, for: .vertical)
-        return picker
+    func makeNSView(context: Context) -> ScalingDatePickerView {
+        let view = ScalingDatePickerView()
+        view.scale = scale
+        view.picker.dateValue = date
+        view.picker.target = context.coordinator
+        view.picker.action = #selector(Coordinator.valueChanged(_:))
+        return view
     }
 
-    func updateNSView(_ picker: NSDatePicker, context: Context) {
+    func updateNSView(_ view: ScalingDatePickerView, context: Context) {
         context.coordinator.onChange = onChange
+        if abs(view.scale - scale) > 0.000_1 {
+            view.scale = scale
+        }
         let keyed = MeetingDayWindow.startOfDay(date)
-        if MeetingDayWindow.startOfDay(picker.dateValue) != keyed {
-            picker.dateValue = keyed
+        if MeetingDayWindow.startOfDay(view.picker.dateValue) != keyed {
+            view.picker.dateValue = keyed
         }
     }
 
@@ -805,6 +872,114 @@ private struct BorderlessCalendarDatePicker: NSViewRepresentable {
 
         @objc func valueChanged(_ sender: NSDatePicker) {
             onChange(sender.dateValue)
+        }
+    }
+}
+
+/// Calendar picker whose header ● (between ◀ ▶) jumps to the current civil day / month.
+private final class TodayAwareDatePicker: NSDatePicker {
+    override func mouseDown(with event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        if isInTodayControl(loc) {
+            dateValue = MeetingDayWindow.startOfDay(Date())
+            sendAction(action, to: target)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    /// Middle control in the trailing ◀ ● ▶ cluster at the top of the calendar.
+    private func isInTodayControl(_ p: NSPoint) -> Bool {
+        let headerH: CGFloat = 28
+        let inHeader = isFlipped
+            ? (p.y >= 0 && p.y <= headerH)
+            : (p.y >= bounds.height - headerH && p.y <= bounds.height)
+        guard inHeader else { return false }
+
+        // Three ~18pt controls; middle third is ● (“today”).
+        let clusterW: CGFloat = 54
+        let clusterMinX = bounds.maxX - clusterW - 4
+        guard p.x >= clusterMinX, p.x <= bounds.maxX - 4 else { return false }
+        let x = p.x - clusterMinX
+        let third = clusterW / 3
+        return x >= third && x < 2 * third
+    }
+}
+
+/// `frame` = scaled size (for SwiftUI / popover), `bounds` = intrinsic calendar size — AppKit scales the picker to fill.
+private final class ScalingDatePickerView: NSView {
+    let picker: TodayAwareDatePicker = {
+        let p = TodayAwareDatePicker(frame: .zero)
+        p.datePickerStyle = .clockAndCalendar
+        p.datePickerElements = [.yearMonthDay]
+        p.datePickerMode = .single
+        p.isBordered = false
+        p.drawsBackground = false
+        p.focusRingType = .none
+        p.calendar = .current
+        p.locale = .current
+        return p
+    }()
+
+    var scale: CGFloat = 1 {
+        didSet {
+            guard abs(scale - oldValue) > 0.000_1 else { return }
+            invalidateIntrinsicContentSize()
+            needsLayout = true
+        }
+    }
+
+    private var baseSize = NSSize(width: 198, height: 148)
+
+    override var isFlipped: Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: ceil(baseSize.width * scale), height: ceil(baseSize.height * scale))
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addSubview(picker)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshBaseSize()
+        syncBoundsToBaseSize()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        // Keep bounds at the unscaled calendar size so AppKit magnifies content into `frame`.
+        syncBoundsToBaseSize()
+    }
+
+    override func layout() {
+        super.layout()
+        refreshBaseSize()
+        syncBoundsToBaseSize()
+        picker.frame = NSRect(origin: .zero, size: baseSize)
+    }
+
+    private func syncBoundsToBaseSize() {
+        let next = NSRect(origin: .zero, size: baseSize)
+        if bounds.size != baseSize {
+            bounds = next
+        }
+    }
+
+    private func refreshBaseSize() {
+        picker.sizeToFit()
+        let fitted = picker.fittingSize
+        guard fitted.width > 1, fitted.height > 1 else { return }
+        if fitted != baseSize {
+            baseSize = fitted
+            invalidateIntrinsicContentSize()
         }
     }
 }

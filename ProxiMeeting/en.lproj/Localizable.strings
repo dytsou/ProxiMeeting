@@ -18,6 +18,7 @@
 
 /* Menu chrome */
 "menu.resize_list" = "Drag to resize list";
+"menu.resize_date_picker" = "Drag to resize calendar";
 
 /* Auth */
 "auth.required" = "Calendar access required";

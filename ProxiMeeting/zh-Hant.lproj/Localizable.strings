@@ -18,6 +18,7 @@
 
 /* Menu chrome */
 "menu.resize_list" = "拖曳以調整清單高度";
+"menu.resize_date_picker" = "拖曳以調整日曆大小";
 
 /* Auth */
 "auth.required" = "需要行事曆存取權限";

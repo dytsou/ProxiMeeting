@@ -66,4 +66,22 @@ final class AppearanceStore: ObservableObject {
             objectWillChange.send()
         }
     }
+
+    /// Far-jump calendar scale (1 = intrinsic NSDatePicker size).
+    static let datePickerScaleDefault: Double = 1
+    static let datePickerScaleMin: Double = 1
+    static let datePickerScaleMax: Double = 2.0
+
+    var datePickerScale: Double {
+        get {
+            let v = defaults.double(forKey: "appearance.datePickerScale")
+            let raw = v == 0 ? Self.datePickerScaleDefault : v
+            return min(max(raw, Self.datePickerScaleMin), Self.datePickerScaleMax)
+        }
+        set {
+            let clamped = min(max(newValue, Self.datePickerScaleMin), Self.datePickerScaleMax)
+            defaults.set(clamped, forKey: "appearance.datePickerScale")
+            objectWillChange.send()
+        }
+    }
 }

@@ -18,10 +18,14 @@ A macOS menu bar app that shows your next meeting at a glance.
 
 - Displays the next meeting time in the menu bar
 - Shows "In Progress" when a meeting is currently active
-- Popup list of all remaining meetings today
+- Popup list of meetings for the day you are browsing (opens scrolled to the first remaining meeting)
+- **Browse other days:** left/right arrows or the header date control (yesterday through about two weeks ahead; window can extend as you near the edge)
+- Drag the bottom-trailing corner to resize the popover
+- Archive a meeting from the list to hide it from the menu-bar tray (restore the same way); with **Past events → Fade**, archived and ended items stay in the popover faded
 - Auto-detects video conferencing links (Zoom, Google Meet, Teams, Webex, Whereby)
-- One-click join button for detected meeting links; **Settings** sets **App** vs **browser** per provider (Zoom, Google Meet, Teams, Webex, Whereby)
-- **Calendar selection:** in **Settings**, use the **Calendars** tab to limit which Apple Calendar sources are read
+- One-click join button for detected meeting links; **Settings → Meeting links** sets **App** vs **browser** per provider (Zoom, Google Meet, Teams, Webex, Whereby)
+- **Calendars:** **Settings → Calendars** limits which Apple Calendar sources are read
+- **Appearance:** **Settings → Appearance** adjusts list/menu-bar fonts, title length, and whether today's past events are **Hidden** or **Faded**
 - Refreshes every 60 seconds and on calendar changes
 - Daily update check (GitHub Releases) with in-app update link
 - Supports English and Traditional Chinese (follows system language)
@@ -188,10 +192,13 @@ ProxiMeeting/
 ├── project.yml                     # xcodegen config
 └── ProxiMeeting/
     ├── ProxiMeetingApp.swift        # App entry point + menu bar label
-    ├── CalendarManager.swift       # EventKit + video link detection
+    ├── CalendarManager.swift       # EventKit + video link detection + archive
     ├── CalendarSelectionStore.swift # UserDefaults: which calendars to include
     ├── JoinPreferenceStore.swift   # UserDefaults: App vs browser per service
-    ├── MeetingMenuView.swift       # Popup UI
+    ├── AppearanceStore.swift       # UserDefaults: fonts, past-events display, popover size
+    ├── MeetingDayWindow.swift      # Multi-day browse window math
+    ├── MeetingMenuView.swift       # Popup UI, settings sheets, resize handle
+    ├── UpdateChecker.swift         # GitHub Releases update check
     ├── Info.plist                  # Calendar permission descriptions
     ├── ProxiMeeting.entitlements    # Sandbox + calendar entitlements
     ├── en.lproj/

@@ -18,10 +18,14 @@
 
 - 在選單列顯示下一場會議的開始時間
 - 會議進行中時顯示「進行中」
-- 點擊展開今日剩餘所有會議清單
+- 點擊展開目前瀏覽日的會議清單（開啟時捲動到第一場尚未結束的會議）
+- **瀏覽其他日期：** 左右方向鍵或標題列日期控制（約可看昨天到兩週後；接近邊界時視窗可再延伸）
+- 拖曳彈出視窗右下角可調整大小
+- 可從清單封存會議，使其不再出現在選單列；在**過去的會議 → 淡化**時，已結束與已封存項目仍會以淡化列顯示於彈出視窗
 - 自動偵測視訊會議連結（Zoom、Google Meet、Teams、Webex、Whereby）
-- 偵測到連結時顯示一鍵加入按鈕；**設定**可為各服務（Zoom、Google Meet、Teams、Webex、Whereby）分別選擇以 **App** 或**瀏覽器**開啟
-- **行事曆來源：** 在**設定**的**行事曆來源**分頁可指定要讀取哪些 Apple 行事曆
+- 偵測到連結時顯示一鍵加入按鈕；**設定 → 會議連結**可為各服務分別選擇以 **App** 或**瀏覽器**開啟
+- **行事曆來源：** **設定 → 行事曆來源**可指定要讀取哪些 Apple 行事曆
+- **外觀：** **設定 → 外觀**可調整清單／選單列字體、標題長度，以及今日過去的會議要**隱藏**或**淡化**
 - 每 60 秒自動更新，行事曆有異動時立即刷新
 - 每日檢查更新（GitHub Releases），並在 App 內提供更新連結
 - 支援英文與繁體中文（依系統語言自動切換）
@@ -188,10 +192,13 @@ ProxiMeeting/
 ├── project.yml                     # xcodegen 設定
 └── ProxiMeeting/
     ├── ProxiMeetingApp.swift        # App 進入點 + 選單列 label
-    ├── CalendarManager.swift       # EventKit + 視訊連結偵測
+    ├── CalendarManager.swift       # EventKit + 視訊連結偵測 + 封存
     ├── CalendarSelectionStore.swift # UserDefaults：要納入的行事曆
     ├── JoinPreferenceStore.swift   # UserDefaults：各服務以 App 或瀏覽器開啟
-    ├── MeetingMenuView.swift       # 彈出視窗 UI
+    ├── AppearanceStore.swift       # UserDefaults：字體、過去會議顯示、彈出視窗大小
+    ├── MeetingDayWindow.swift      # 多日瀏覽視窗計算
+    ├── MeetingMenuView.swift       # 彈出視窗 UI、設定、調整大小
+    ├── UpdateChecker.swift         # GitHub Releases 更新檢查
     ├── Info.plist                  # 行事曆權限說明
     ├── ProxiMeeting.entitlements    # 沙盒 + 行事曆存取
     ├── en.lproj/

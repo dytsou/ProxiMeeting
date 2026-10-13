@@ -1,9 +1,32 @@
 import Combine
 import Foundation
 
+/// How already-ended meetings appear on today's browse list.
+enum PastEventsDisplay: String, CaseIterable, Hashable {
+    /// Omit ended meetings (menu-bar / tray behavior always uses this).
+    case hide
+    /// Keep ended meetings that started today, drawn faded.
+    case fade
+}
+
 @MainActor
 final class AppearanceStore: ObservableObject {
     private let defaults = UserDefaults.standard
+
+    /// Today's ended meetings in the popover list: hide (default) or fade.
+    var pastEventsDisplay: PastEventsDisplay {
+        get {
+            guard let raw = defaults.string(forKey: "appearance.pastEventsDisplay"),
+                  let mode = PastEventsDisplay(rawValue: raw) else {
+                return .hide
+            }
+            return mode
+        }
+        set {
+            defaults.set(newValue.rawValue, forKey: "appearance.pastEventsDisplay")
+            objectWillChange.send()
+        }
+    }
 
     var fontSize: Double {
         get {

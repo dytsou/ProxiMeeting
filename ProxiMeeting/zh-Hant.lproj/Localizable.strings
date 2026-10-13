@@ -31,6 +31,8 @@
 /* Meeting row */
 "row.in_progress" = "進行中";
 "row.join_help" = "加入 %@ 會議";
+"row.archive" = "封存會議";
+"row.unarchive" = "取消封存";
 
 /* Footer */
 "footer.open_calendar" = "開啟行事曆";
@@ -72,6 +74,9 @@
 "settings.appearance.menu_bar_title_font_size" = "選單列標題字體";
 "settings.appearance.menu_bar_time_font_size" = "選單列時間字體";
 "settings.appearance.menu_bar_length" = "選單列標題長度";
+"settings.appearance.past_events" = "過去的會議";
+"settings.appearance.past_events.hide" = "隱藏";
+"settings.appearance.past_events.fade" = "淡化";
 "settings.appearance.preview_section" = "預覽";
 "settings.appearance.preview_menu_bar" = "選單列預覽";
 "settings.appearance.preview_list_row" = "會議列預覽";

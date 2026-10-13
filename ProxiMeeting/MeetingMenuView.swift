@@ -40,6 +40,8 @@ struct MeetingMenuView: View {
     @State private var showJoinSettings = false
     @State private var showDatePicker = false
     @State private var keyMonitor: Any?
+    /// Bumped when the popover opens or browse day changes so the list re-anchors once.
+    @State private var listScrollEpoch = 0
 
     private var today: Date { MeetingDayWindow.startOfDay(Date()) }
 
@@ -58,7 +60,7 @@ struct MeetingMenuView: View {
                 onSelect: selectBrowseDay
             )
             Divider()
-            ContentView(browseDay: browseDay)
+            ContentView(browseDay: browseDay, listScrollEpoch: listScrollEpoch)
                 .frame(height: appearanceStore.popoverListHeight)
             PopoverListResizeHandle()
             Divider()
@@ -74,6 +76,7 @@ struct MeetingMenuView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingPopoverWillShow)) { _ in
             resetBrowseToToday()
+            listScrollEpoch += 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingOpenJoinSettings)) { _ in
             showJoinSettings = true
@@ -117,6 +120,7 @@ struct MeetingMenuView: View {
         tracksCivilToday = MeetingDayWindow.isSameCalendarDay(keyed, Date())
         manager.ensureWindow(for: keyed)
         showDatePicker = false
+        listScrollEpoch += 1
         updateArrowCaptureGate()
     }
 
@@ -372,17 +376,50 @@ private struct DayChip: View {
 
 private struct ContentView: View {
     @EnvironmentObject var manager: CalendarManager
+    @EnvironmentObject var appearanceStore: AppearanceStore
     let browseDay: Date
+    let listScrollEpoch: Int
 
     var body: some View {
         if !manager.isAuthorized {
             UnauthorizedView()
         } else {
-            let meetings = manager.meetings(for: browseDay)
-            if meetings.isEmpty {
-                NoMeetingsView(browseDay: browseDay)
+            let fadeMode = appearanceStore.pastEventsDisplay == .fade
+            let meetings = manager.meetings(
+                for: browseDay,
+                includeEnded: fadeMode,
+                includeArchived: fadeMode
+            )
+            let isToday = MeetingDayWindow.isSameCalendarDay(browseDay, Date())
+            let anchorID = meetings.first { meeting in
+                !meeting.isPast && !manager.isArchived(meeting.id)
+            }?.id
+
+            if !meetings.isEmpty, !(isToday && anchorID == nil) {
+                // Remaining meetings exist: open on the first one; scroll up for past/archived.
+                MeetingListView(
+                    meetings: meetings,
+                    initialAnchorID: isToday ? anchorID : nil,
+                    listScrollEpoch: listScrollEpoch
+                )
+            } else if isToday {
+                // Nothing remaining — still list archived (and faded past) so they can be unarchived.
+                let recoverable = manager.meetings(
+                    for: browseDay,
+                    includeEnded: fadeMode,
+                    includeArchived: true
+                )
+                if recoverable.isEmpty {
+                    NoMeetingsView(browseDay: browseDay)
+                } else {
+                    MeetingListView(
+                        meetings: recoverable,
+                        initialAnchorID: nil,
+                        listScrollEpoch: listScrollEpoch
+                    )
+                }
             } else {
-                MeetingListView(meetings: meetings)
+                NoMeetingsView(browseDay: browseDay)
             }
         }
     }
@@ -440,22 +477,48 @@ private struct NoMeetingsView: View {
 
 private struct MeetingListView: View {
     let meetings: [Meeting]
+    /// First remaining (not past / not archived) meeting — list opens scrolled here; user may scroll up.
+    let initialAnchorID: String?
+    let listScrollEpoch: Int
     @EnvironmentObject var appearanceStore: AppearanceStore
+    @State private var anchoredEpoch: Int?
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(Array(meetings.enumerated()), id: \.element.id) { index, meeting in
-                    if index > 0 {
-                        Divider()
-                            .padding(.horizontal, 14)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(meetings.enumerated()), id: \.element.id) { index, meeting in
+                        if index > 0 {
+                            Divider()
+                                .padding(.horizontal, 14)
+                        }
+                        MeetingRow(meeting: meeting)
+                            .id(meeting.id)
                     }
-                    MeetingRow(meeting: meeting)
                 }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { anchorIfNeeded(proxy) }
+            .onChange(of: listScrollEpoch) { _ in
+                anchoredEpoch = nil
+                anchorIfNeeded(proxy)
+            }
+            .onChange(of: initialAnchorID) { _ in
+                anchoredEpoch = nil
+                anchorIfNeeded(proxy)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func anchorIfNeeded(_ proxy: ScrollViewProxy) {
+        guard let initialAnchorID else { return }
+        guard anchoredEpoch != listScrollEpoch else { return }
+        anchoredEpoch = listScrollEpoch
+        // LazyVStack needs a turn to register ids before scrollTo sticks.
+        DispatchQueue.main.async {
+            proxy.scrollTo(initialAnchorID, anchor: .top)
+        }
     }
 }
 
@@ -505,6 +568,17 @@ private struct PopoverListResizeHandle: View {
 struct MeetingRow: View {
     let meeting: Meeting
     @EnvironmentObject var appearanceStore: AppearanceStore
+    @EnvironmentObject var manager: CalendarManager
+
+    private var isArchived: Bool {
+        manager.isArchived(meeting.id)
+    }
+
+    private var isFaded: Bool {
+        guard appearanceStore.pastEventsDisplay == .fade else { return false }
+        if isArchived { return true }
+        return meeting.isPast && !meeting.isNow
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -520,7 +594,7 @@ struct MeetingRow: View {
 
             // Status bar
             RoundedRectangle(cornerRadius: 2)
-                .fill(meeting.isNow ? Color.green : Color.accentColor.opacity(0.4))
+                .fill(meeting.isNow && !isArchived ? Color.green : Color.accentColor.opacity(0.4))
                 .frame(width: 3, height: 36)
 
             // Title + location
@@ -538,14 +612,27 @@ struct MeetingRow: View {
 
             Spacer()
 
-            // Join button
             if let url = meeting.meetingURL {
                 JoinButton(url: url, service: meeting.meetingService)
+            }
+
+            if !meeting.isPast {
+                Button {
+                    manager.toggleArchived(meeting.id)
+                } label: {
+                    Image(systemName: isArchived ? "archivebox.fill" : "archivebox")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(isArchived ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(Text(isArchived ? "row.unarchive" : "row.archive"))
+                .accessibilityLabel(Text(isArchived ? "row.unarchive" : "row.archive"))
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(meeting.isNow ? Color.green.opacity(0.05) : Color.clear)
+        .background(meeting.isNow && !isArchived ? Color.green.opacity(0.05) : Color.clear)
+        .opacity(isFaded ? 0.45 : 1)
         .contentShape(Rectangle())
     }
 }
@@ -1301,6 +1388,22 @@ private struct AppearanceSettingsPane: View {
                             .frame(width: 28, alignment: .trailing)
                     }
                 }
+
+                HStack(alignment: .center) {
+                    Text("settings.appearance.past_events")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Picker("", selection: Binding(
+                        get: { appearanceStore.pastEventsDisplay },
+                        set: { appearanceStore.pastEventsDisplay = $0 }
+                    )) {
+                        Text("settings.appearance.past_events.hide").tag(PastEventsDisplay.hide)
+                        Text("settings.appearance.past_events.fade").tag(PastEventsDisplay.fade)
+                    }
+                    .labelsHidden()
+                    .frame(width: 160)
+                    .pickerStyle(.segmented)
+                }
+                .padding(.vertical, 2)
             } header: {
                 Text("settings.appearance.section")
             }

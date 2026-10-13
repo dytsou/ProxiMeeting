@@ -28,6 +28,11 @@ struct Meeting: Identifiable {
         return startDate <= now && now <= endDate
     }
 
+    /// Already finished (matches today's browse “ended” filter: `endDate <= now`).
+    var isPast: Bool {
+        endDate <= Date()
+    }
+
     var meetingService: MeetingService {
         guard let url = meetingURL else { return .unknown }
         let str = url.absoluteString
@@ -59,8 +64,11 @@ enum MeetingService {
 
 @MainActor
 class CalendarManager: ObservableObject {
+    private static let archivedIDsKey = "meetings.archivedIDs"
+
     private let eventStore = EKEventStore()
     private let calendarSelection: CalendarSelectionStore
+    private let defaults = UserDefaults.standard
 
     @Published var nextMeeting: Meeting?
     @Published var upcomingMeetings: [Meeting] = []
@@ -69,6 +77,8 @@ class CalendarManager: ObservableObject {
     @Published private(set) var windowBounds: MeetingDayWindow.Bounds
     /// Non-all-day meetings bucketed by start-of-day of `startDate`.
     @Published private(set) var meetingsByDay: [Date: [Meeting]] = [:]
+    /// User-archived meeting ids (dismissed from tray; list hides or fades per appearance setting).
+    @Published private(set) var archivedMeetingIDs: Set<String> = []
 
     private var timer: Timer?
     private var notificationObserver: NSObjectProtocol?
@@ -81,6 +91,7 @@ class CalendarManager: ObservableObject {
     init(calendarSelection: CalendarSelectionStore) {
         self.calendarSelection = calendarSelection
         self.windowBounds = MeetingDayWindow.defaultBounds(around: Date())
+        self.archivedMeetingIDs = Set(defaults.stringArray(forKey: Self.archivedIDsKey) ?? [])
         checkAndFetch()
         setupChangeObserver()
         selectionCancellable = calendarSelection.objectWillChange
@@ -88,6 +99,21 @@ class CalendarManager: ObservableObject {
             .sink { [weak self] _ in
                 self?.requestFetch(debounceSeconds: 0.25)
             }
+    }
+
+    func isArchived(_ meetingID: String) -> Bool {
+        archivedMeetingIDs.contains(meetingID)
+    }
+
+    /// Archives or restores a meeting. Archived items leave the menu-bar tray immediately.
+    func toggleArchived(_ meetingID: String) {
+        if archivedMeetingIDs.contains(meetingID) {
+            archivedMeetingIDs.remove(meetingID)
+        } else {
+            archivedMeetingIDs.insert(meetingID)
+        }
+        defaults.set(Array(archivedMeetingIDs), forKey: Self.archivedIDsKey)
+        publishTrayMeetings()
     }
 
     deinit {
@@ -215,30 +241,43 @@ class CalendarManager: ObservableObject {
     }
 
     /// Meetings for the browse list: today uses remaining/ongoing rules; other days are full-day.
-    func meetings(for browseDay: Date, now: Date = Date()) -> [Meeting] {
+    /// Pass `includeEnded: true` to also list today's finished meetings (popover fade mode).
+    /// Pass `includeArchived: true` to keep user-archived rows (caller fades them).
+    /// Tray `nextMeeting` / `upcomingMeetings` always call with both flags `false`.
+    func meetings(
+        for browseDay: Date,
+        now: Date = Date(),
+        includeEnded: Bool = false,
+        includeArchived: Bool = false
+    ) -> [Meeting] {
         let calendar = Calendar.current
         let day = MeetingDayWindow.dayKey(browseDay, calendar: calendar)
         let today = MeetingDayWindow.dayKey(now, calendar: calendar)
 
+        let base: [Meeting]
         if day == today {
             let candidates = meetingsByDay
                 .filter { $0.key <= today }
                 .values
                 .flatMap { $0 }
-            return candidates
+            base = candidates
                 .filter {
                     MeetingDayWindow.includesInTodayBrowse(
                         startDate: $0.startDate,
                         endDate: $0.endDate,
                         now: now,
                         browseDay: day,
+                        includeEnded: includeEnded,
                         calendar: calendar
                     )
                 }
                 .sorted { $0.startDate < $1.startDate }
+        } else {
+            base = meetingsByDay[day] ?? []
         }
 
-        return meetingsByDay[day] ?? []
+        guard !includeArchived else { return base }
+        return base.filter { !archivedMeetingIDs.contains($0.id) }
     }
 
     /// Ensures `browseDay` sits in the loaded window (edge extend or far-jump recenter), then refetches if bounds change.
@@ -284,10 +323,28 @@ class CalendarManager: ObservableObject {
             bucket[key]?.sort { $0.startDate < $1.startDate }
         }
         meetingsByDay = bucket
+        pruneArchivedIDs(keeping: bucket)
+        publishTrayMeetings(now: now, calendar: calendar)
+    }
 
-        let todayMeetings = meetings(for: MeetingDayWindow.dayKey(now, calendar: calendar), now: now)
+    /// Menu bar / tray: never show ended or archived meetings.
+    private func publishTrayMeetings(now: Date = Date(), calendar: Calendar = .current) {
+        let todayMeetings = meetings(
+            for: MeetingDayWindow.dayKey(now, calendar: calendar),
+            now: now,
+            includeEnded: false,
+            includeArchived: false
+        )
         upcomingMeetings = todayMeetings
         nextMeeting = todayMeetings.first
+    }
+
+    private func pruneArchivedIDs(keeping bucket: [Date: [Meeting]]) {
+        let live = Set(bucket.values.flatMap { $0.map(\.id) })
+        let pruned = archivedMeetingIDs.intersection(live)
+        guard pruned != archivedMeetingIDs else { return }
+        archivedMeetingIDs = pruned
+        defaults.set(Array(pruned), forKey: Self.archivedIDsKey)
     }
 
     // MARK: Meeting Construction

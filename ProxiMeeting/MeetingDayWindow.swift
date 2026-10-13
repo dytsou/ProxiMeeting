@@ -198,24 +198,34 @@ public enum MeetingDayWindow {
     }
 
     /// Whether a timed item belongs on today's browse list (tray / remaining-today rules).
+    ///
+    /// When `includeEnded` is false (default), only meetings still ending after `now` are kept.
+    /// When true, also keeps meetings that already ended if they started on `browseDay`
+    /// (caller typically fades those rows).
     public static func includesInTodayBrowse(
         startDate: Date,
         endDate: Date,
         now: Date,
         browseDay: Date,
+        includeEnded: Bool = false,
         calendar: Calendar = .current
     ) -> Bool {
-        guard endDate > now else { return false }
-        if calendar.isDate(startDate, inSameDayAs: browseDay) { return true }
-        return startDate < now
+        if endDate > now {
+            if calendar.isDate(startDate, inSameDayAs: browseDay) { return true }
+            return startDate < now
+        }
+        guard includeEnded else { return false }
+        return calendar.isDate(startDate, inSameDayAs: browseDay)
     }
 
-    /// Today: non-all-day, still ending after `now`, started today or still ongoing (lookback spirit).
+    /// Today: non-all-day; by default still ending after `now`, started today or still ongoing.
+    /// Pass `includeEnded: true` to also keep today's already-ended meetings (for fade display).
     /// Other days: non-all-day meetings whose start falls on that calendar day (full day).
     public static func filterEvents(
         _ events: [TimedEvent],
         forBrowseDay browseDay: Date,
         now: Date,
+        includeEnded: Bool = false,
         calendar: Calendar = .current
     ) -> [TimedEvent] {
         let day = startOfDay(browseDay, calendar: calendar)
@@ -230,6 +240,7 @@ public enum MeetingDayWindow {
                         endDate: $0.endDate,
                         now: now,
                         browseDay: day,
+                        includeEnded: includeEnded,
                         calendar: calendar
                     )
                 }

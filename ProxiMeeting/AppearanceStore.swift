@@ -49,7 +49,7 @@ final class AppearanceStore: ObservableObject {
         }
     }
 
-    /// Meeting-list viewport height inside the menu popover (drag-resizable).
+    /// Meeting-list viewport height inside the menu popover (corner-resizable).
     static let popoverListHeightDefault: Double = 90
     static let popoverListHeightMin: Double = 90
     static let popoverListHeightMax: Double = 360
@@ -63,6 +63,24 @@ final class AppearanceStore: ObservableObject {
         set {
             let clamped = min(max(newValue, Self.popoverListHeightMin), Self.popoverListHeightMax)
             defaults.set(clamped, forKey: "appearance.popoverListHeight")
+            objectWillChange.send()
+        }
+    }
+
+    /// Menu popover width (corner-resizable with list height).
+    static let popoverWidthDefault: Double = 340
+    static let popoverWidthMin: Double = 340
+    static let popoverWidthMax: Double = 560
+
+    var popoverWidth: Double {
+        get {
+            let v = defaults.double(forKey: "appearance.popoverWidth")
+            let raw = v == 0 ? Self.popoverWidthDefault : v
+            return min(max(raw, Self.popoverWidthMin), Self.popoverWidthMax)
+        }
+        set {
+            let clamped = min(max(newValue, Self.popoverWidthMin), Self.popoverWidthMax)
+            defaults.set(clamped, forKey: "appearance.popoverWidth")
             objectWillChange.send()
         }
     }

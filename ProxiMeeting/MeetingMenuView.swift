@@ -40,6 +40,8 @@ struct MeetingMenuView: View {
     @State private var showJoinSettings = false
     @State private var showDatePicker = false
     @State private var keyMonitor: Any?
+    /// Bumped when the popover opens or browse day changes so the list re-anchors once.
+    @State private var listScrollEpoch = 0
 
     private var today: Date { MeetingDayWindow.startOfDay(Date()) }
 
@@ -58,7 +60,7 @@ struct MeetingMenuView: View {
                 onSelect: selectBrowseDay
             )
             Divider()
-            ContentView(browseDay: browseDay)
+            ContentView(browseDay: browseDay, listScrollEpoch: listScrollEpoch)
                 .frame(height: appearanceStore.popoverListHeight)
             PopoverListResizeHandle()
             Divider()
@@ -74,6 +76,7 @@ struct MeetingMenuView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingPopoverWillShow)) { _ in
             resetBrowseToToday()
+            listScrollEpoch += 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .proxiMeetingOpenJoinSettings)) { _ in
             showJoinSettings = true
@@ -117,6 +120,7 @@ struct MeetingMenuView: View {
         tracksCivilToday = MeetingDayWindow.isSameCalendarDay(keyed, Date())
         manager.ensureWindow(for: keyed)
         showDatePicker = false
+        listScrollEpoch += 1
         updateArrowCaptureGate()
     }
 
@@ -374,6 +378,7 @@ private struct ContentView: View {
     @EnvironmentObject var manager: CalendarManager
     @EnvironmentObject var appearanceStore: AppearanceStore
     let browseDay: Date
+    let listScrollEpoch: Int
 
     var body: some View {
         if !manager.isAuthorized {
@@ -385,10 +390,36 @@ private struct ContentView: View {
                 includeEnded: fadeMode,
                 includeArchived: fadeMode
             )
-            if meetings.isEmpty {
-                NoMeetingsView(browseDay: browseDay)
+            let isToday = MeetingDayWindow.isSameCalendarDay(browseDay, Date())
+            let anchorID = meetings.first { meeting in
+                !meeting.isPast && !manager.isArchived(meeting.id)
+            }?.id
+
+            if !meetings.isEmpty, !(isToday && anchorID == nil) {
+                // Remaining meetings exist: open on the first one; scroll up for past/archived.
+                MeetingListView(
+                    meetings: meetings,
+                    initialAnchorID: isToday ? anchorID : nil,
+                    listScrollEpoch: listScrollEpoch
+                )
+            } else if isToday {
+                // Nothing remaining — still list archived (and faded past) so they can be unarchived.
+                let recoverable = manager.meetings(
+                    for: browseDay,
+                    includeEnded: fadeMode,
+                    includeArchived: true
+                )
+                if recoverable.isEmpty {
+                    NoMeetingsView(browseDay: browseDay)
+                } else {
+                    MeetingListView(
+                        meetings: recoverable,
+                        initialAnchorID: nil,
+                        listScrollEpoch: listScrollEpoch
+                    )
+                }
             } else {
-                MeetingListView(meetings: meetings)
+                NoMeetingsView(browseDay: browseDay)
             }
         }
     }
@@ -446,22 +477,48 @@ private struct NoMeetingsView: View {
 
 private struct MeetingListView: View {
     let meetings: [Meeting]
+    /// First remaining (not past / not archived) meeting — list opens scrolled here; user may scroll up.
+    let initialAnchorID: String?
+    let listScrollEpoch: Int
     @EnvironmentObject var appearanceStore: AppearanceStore
+    @State private var anchoredEpoch: Int?
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(Array(meetings.enumerated()), id: \.element.id) { index, meeting in
-                    if index > 0 {
-                        Divider()
-                            .padding(.horizontal, 14)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(meetings.enumerated()), id: \.element.id) { index, meeting in
+                        if index > 0 {
+                            Divider()
+                                .padding(.horizontal, 14)
+                        }
+                        MeetingRow(meeting: meeting)
+                            .id(meeting.id)
                     }
-                    MeetingRow(meeting: meeting)
                 }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { anchorIfNeeded(proxy) }
+            .onChange(of: listScrollEpoch) { _ in
+                anchoredEpoch = nil
+                anchorIfNeeded(proxy)
+            }
+            .onChange(of: initialAnchorID) { _ in
+                anchoredEpoch = nil
+                anchorIfNeeded(proxy)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func anchorIfNeeded(_ proxy: ScrollViewProxy) {
+        guard let initialAnchorID else { return }
+        guard anchoredEpoch != listScrollEpoch else { return }
+        anchoredEpoch = listScrollEpoch
+        // LazyVStack needs a turn to register ids before scrollTo sticks.
+        DispatchQueue.main.async {
+            proxy.scrollTo(initialAnchorID, anchor: .top)
+        }
     }
 }
 

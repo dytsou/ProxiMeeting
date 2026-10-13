@@ -72,6 +72,9 @@
 "settings.appearance.menu_bar_title_font_size" = "Menu bar title font";
 "settings.appearance.menu_bar_time_font_size" = "Menu bar time font";
 "settings.appearance.menu_bar_length" = "Menu bar title length";
+"settings.appearance.past_events" = "Past events";
+"settings.appearance.past_events.hide" = "Hide";
+"settings.appearance.past_events.fade" = "Fade";
 "settings.appearance.preview_section" = "Preview";
 "settings.appearance.preview_menu_bar" = "Menu bar preview";
 "settings.appearance.preview_list_row" = "Meeting row preview";

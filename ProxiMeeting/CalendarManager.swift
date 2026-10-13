@@ -28,6 +28,11 @@ struct Meeting: Identifiable {
         return startDate <= now && now <= endDate
     }
 
+    /// Already finished (matches today's browse “ended” filter: `endDate <= now`).
+    var isPast: Bool {
+        endDate <= Date()
+    }
+
     var meetingService: MeetingService {
         guard let url = meetingURL else { return .unknown }
         let str = url.absoluteString
@@ -215,7 +220,9 @@ class CalendarManager: ObservableObject {
     }
 
     /// Meetings for the browse list: today uses remaining/ongoing rules; other days are full-day.
-    func meetings(for browseDay: Date, now: Date = Date()) -> [Meeting] {
+    /// Pass `includeEnded: true` to also list today's finished meetings (popover fade mode).
+    /// Tray `nextMeeting` / `upcomingMeetings` always call with the default (`false`).
+    func meetings(for browseDay: Date, now: Date = Date(), includeEnded: Bool = false) -> [Meeting] {
         let calendar = Calendar.current
         let day = MeetingDayWindow.dayKey(browseDay, calendar: calendar)
         let today = MeetingDayWindow.dayKey(now, calendar: calendar)
@@ -232,6 +239,7 @@ class CalendarManager: ObservableObject {
                         endDate: $0.endDate,
                         now: now,
                         browseDay: day,
+                        includeEnded: includeEnded,
                         calendar: calendar
                     )
                 }

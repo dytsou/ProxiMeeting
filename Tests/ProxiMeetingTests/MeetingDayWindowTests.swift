@@ -157,6 +157,36 @@ final class MeetingDayWindowTests: XCTestCase {
         XCTAssertFalse(filtered.contains(ended))
     }
 
+    func testTodayFilterIncludeEndedKeepsTodaysPastAndSkipsYesterdaysEnded() {
+        let today = date(2026, 10, 11)
+        let endedToday = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 11, 9, 0),
+            endDate: date(2026, 10, 11, 10, 0),
+            isAllDay: false
+        )
+        let endedYesterday = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 10, 20, 0),
+            endDate: date(2026, 10, 11, 8, 0),
+            isAllDay: false
+        )
+        let ongoing = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 11, 12, 0),
+            endDate: date(2026, 10, 11, 18, 0),
+            isAllDay: false
+        )
+        let filtered = MeetingDayWindow.filterEvents(
+            [endedToday, endedYesterday, ongoing],
+            forBrowseDay: today,
+            now: fixedNow,
+            includeEnded: true,
+            calendar: calendar
+        )
+        XCTAssertEqual(filtered.count, 2)
+        XCTAssertTrue(filtered.contains(endedToday))
+        XCTAssertTrue(filtered.contains(ongoing))
+        XCTAssertFalse(filtered.contains(endedYesterday))
+    }
+
     func testOtherDayFilterIncludesMorningWhenNowIsAfternoon() {
         let other = date(2026, 10, 12)
         let morning = MeetingDayWindow.TimedEvent(

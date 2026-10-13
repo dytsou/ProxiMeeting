@@ -372,13 +372,15 @@ private struct DayChip: View {
 
 private struct ContentView: View {
     @EnvironmentObject var manager: CalendarManager
+    @EnvironmentObject var appearanceStore: AppearanceStore
     let browseDay: Date
 
     var body: some View {
         if !manager.isAuthorized {
             UnauthorizedView()
         } else {
-            let meetings = manager.meetings(for: browseDay)
+            let includeEnded = appearanceStore.pastEventsDisplay == .fade
+            let meetings = manager.meetings(for: browseDay, includeEnded: includeEnded)
             if meetings.isEmpty {
                 NoMeetingsView(browseDay: browseDay)
             } else {
@@ -506,6 +508,10 @@ struct MeetingRow: View {
     let meeting: Meeting
     @EnvironmentObject var appearanceStore: AppearanceStore
 
+    private var isFadedPast: Bool {
+        appearanceStore.pastEventsDisplay == .fade && meeting.isPast && !meeting.isNow
+    }
+
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
             // Time column
@@ -546,6 +552,7 @@ struct MeetingRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(meeting.isNow ? Color.green.opacity(0.05) : Color.clear)
+        .opacity(isFadedPast ? 0.45 : 1)
         .contentShape(Rectangle())
     }
 }
@@ -1301,6 +1308,22 @@ private struct AppearanceSettingsPane: View {
                             .frame(width: 28, alignment: .trailing)
                     }
                 }
+
+                HStack(alignment: .center) {
+                    Text("settings.appearance.past_events")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Picker("", selection: Binding(
+                        get: { appearanceStore.pastEventsDisplay },
+                        set: { appearanceStore.pastEventsDisplay = $0 }
+                    )) {
+                        Text("settings.appearance.past_events.hide").tag(PastEventsDisplay.hide)
+                        Text("settings.appearance.past_events.fade").tag(PastEventsDisplay.fade)
+                    }
+                    .labelsHidden()
+                    .frame(width: 160)
+                    .pickerStyle(.segmented)
+                }
+                .padding(.vertical, 2)
             } header: {
                 Text("settings.appearance.section")
             }

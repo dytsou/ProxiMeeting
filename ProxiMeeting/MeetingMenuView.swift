@@ -616,16 +616,18 @@ struct MeetingRow: View {
                 JoinButton(url: url, service: meeting.meetingService)
             }
 
-            Button {
-                manager.toggleArchived(meeting.id)
-            } label: {
-                Image(systemName: isArchived ? "archivebox.fill" : "archivebox")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(isArchived ? Color.accentColor : Color.secondary)
+            if !meeting.isPast {
+                Button {
+                    manager.toggleArchived(meeting.id)
+                } label: {
+                    Image(systemName: isArchived ? "archivebox.fill" : "archivebox")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(isArchived ? Color.accentColor : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(Text(isArchived ? "row.unarchive" : "row.archive"))
+                .accessibilityLabel(Text(isArchived ? "row.unarchive" : "row.archive"))
             }
-            .buttonStyle(.plain)
-            .help(Text(isArchived ? "row.unarchive" : "row.archive"))
-            .accessibilityLabel(Text(isArchived ? "row.unarchive" : "row.archive"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)

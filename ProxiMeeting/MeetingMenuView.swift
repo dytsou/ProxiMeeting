@@ -62,11 +62,11 @@ struct MeetingMenuView: View {
             Divider()
             ContentView(browseDay: browseDay, listScrollEpoch: listScrollEpoch)
                 .frame(height: appearanceStore.popoverListHeight)
-            PopoverListResizeHandle()
+            PopoverCornerResizeHandle()
             Divider()
             FooterView()
         }
-        .frame(width: 340)
+        .frame(width: appearanceStore.popoverWidth)
         .environmentObject(manager)
         .environmentObject(joinPreferences)
         .environmentObject(calendarSelection)
@@ -522,44 +522,50 @@ private struct MeetingListView: View {
     }
 }
 
-/// Drag handle under the meeting list — updates persisted `popoverListHeight`.
-private struct PopoverListResizeHandle: View {
+/// Bottom-trailing corner grip — grows the popover down and to the right (height + width).
+private struct PopoverCornerResizeHandle: View {
     @EnvironmentObject private var appearanceStore: AppearanceStore
     @State private var dragOriginHeight: Double?
+    @State private var dragOriginWidth: Double?
 
     var body: some View {
         HStack {
             Spacer(minLength: 0)
-            Capsule()
-                .fill(Color.secondary.opacity(0.35))
-                .frame(width: 36, height: 4)
-            Spacer(minLength: 0)
+            CornerResizeGrip()
+                .frame(width: 14, height: 14)
+                .foregroundStyle(.secondary.opacity(0.7))
+                .padding(.trailing, 4)
+                .padding(.bottom, 1)
+                .contentShape(Rectangle())
+                .help(Text("menu.resize_list"))
+                .accessibilityLabel(Text("menu.resize_list"))
+                .onHover { hovering in
+                    if hovering {
+                        NSCursor.crosshair.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            if dragOriginHeight == nil {
+                                dragOriginHeight = appearanceStore.popoverListHeight
+                                dragOriginWidth = appearanceStore.popoverWidth
+                            }
+                            appearanceStore.popoverListHeight =
+                                (dragOriginHeight ?? appearanceStore.popoverListHeight) + value.translation.height
+                            appearanceStore.popoverWidth =
+                                (dragOriginWidth ?? appearanceStore.popoverWidth) + value.translation.width
+                        }
+                        .onEnded { _ in
+                            dragOriginHeight = nil
+                            dragOriginWidth = nil
+                        }
+                )
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 12)
-        .contentShape(Rectangle())
-        .help(Text("menu.resize_list"))
-        .accessibilityLabel(Text("menu.resize_list"))
-        .onHover { hovering in
-            if hovering {
-                NSCursor.resizeUpDown.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { value in
-                    if dragOriginHeight == nil {
-                        dragOriginHeight = appearanceStore.popoverListHeight
-                    }
-                    let next = (dragOriginHeight ?? appearanceStore.popoverListHeight) + value.translation.height
-                    appearanceStore.popoverListHeight = next
-                }
-                .onEnded { _ in
-                    dragOriginHeight = nil
-                }
-        )
+        .frame(height: 14)
     }
 }
 

@@ -17,7 +17,7 @@
 "ribbon.back_today" = "Back to today";
 
 /* Menu chrome */
-"menu.resize_list" = "Drag to resize list";
+"menu.resize_list" = "Drag to resize panel";
 "menu.resize_date_picker" = "Drag to resize calendar";
 
 /* Auth */

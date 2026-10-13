@@ -12,7 +12,7 @@
 
 A macOS menu bar app that shows your next meeting at a glance.
 
-![Screenshot](./ProxiMeeting/screenshot.jpg)
+![Screenshot](./ProxiMeeting/screenshot-v2.2.0.jpg)
 
 ## Features
 

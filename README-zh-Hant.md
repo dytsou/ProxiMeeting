@@ -12,7 +12,7 @@
 
 在 Mac 選單列顯示下一場會議的 macOS 小工具。
 
-![Screenshot](./ProxiMeeting/screenshot.jpg)
+![Screenshot](./ProxiMeeting/screenshot-v2.2.0.jpg)
 
 ## 功能
 

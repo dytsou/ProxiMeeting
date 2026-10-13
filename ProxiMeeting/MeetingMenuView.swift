@@ -379,8 +379,12 @@ private struct ContentView: View {
         if !manager.isAuthorized {
             UnauthorizedView()
         } else {
-            let includeEnded = appearanceStore.pastEventsDisplay == .fade
-            let meetings = manager.meetings(for: browseDay, includeEnded: includeEnded)
+            let fadeMode = appearanceStore.pastEventsDisplay == .fade
+            let meetings = manager.meetings(
+                for: browseDay,
+                includeEnded: fadeMode,
+                includeArchived: fadeMode
+            )
             if meetings.isEmpty {
                 NoMeetingsView(browseDay: browseDay)
             } else {
@@ -507,9 +511,16 @@ private struct PopoverListResizeHandle: View {
 struct MeetingRow: View {
     let meeting: Meeting
     @EnvironmentObject var appearanceStore: AppearanceStore
+    @EnvironmentObject var manager: CalendarManager
 
-    private var isFadedPast: Bool {
-        appearanceStore.pastEventsDisplay == .fade && meeting.isPast && !meeting.isNow
+    private var isArchived: Bool {
+        manager.isArchived(meeting.id)
+    }
+
+    private var isFaded: Bool {
+        guard appearanceStore.pastEventsDisplay == .fade else { return false }
+        if isArchived { return true }
+        return meeting.isPast && !meeting.isNow
     }
 
     var body: some View {
@@ -526,7 +537,7 @@ struct MeetingRow: View {
 
             // Status bar
             RoundedRectangle(cornerRadius: 2)
-                .fill(meeting.isNow ? Color.green : Color.accentColor.opacity(0.4))
+                .fill(meeting.isNow && !isArchived ? Color.green : Color.accentColor.opacity(0.4))
                 .frame(width: 3, height: 36)
 
             // Title + location
@@ -544,15 +555,25 @@ struct MeetingRow: View {
 
             Spacer()
 
-            // Join button
             if let url = meeting.meetingURL {
                 JoinButton(url: url, service: meeting.meetingService)
             }
+
+            Button {
+                manager.toggleArchived(meeting.id)
+            } label: {
+                Image(systemName: isArchived ? "archivebox.fill" : "archivebox")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isArchived ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(Text(isArchived ? "row.unarchive" : "row.archive"))
+            .accessibilityLabel(Text(isArchived ? "row.unarchive" : "row.archive"))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(meeting.isNow ? Color.green.opacity(0.05) : Color.clear)
-        .opacity(isFadedPast ? 0.45 : 1)
+        .background(meeting.isNow && !isArchived ? Color.green.opacity(0.05) : Color.clear)
+        .opacity(isFaded ? 0.45 : 1)
         .contentShape(Rectangle())
     }
 }

@@ -31,6 +31,8 @@
 /* Meeting row */
 "row.in_progress" = "進行中";
 "row.join_help" = "加入 %@ 會議";
+"row.archive" = "封存會議";
+"row.unarchive" = "取消封存";
 
 /* Footer */
 "footer.open_calendar" = "開啟行事曆";

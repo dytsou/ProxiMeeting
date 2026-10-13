@@ -31,6 +31,8 @@
 /* Meeting row */
 "row.in_progress" = "In Progress";
 "row.join_help" = "Join %@ meeting";
+"row.archive" = "Archive meeting";
+"row.unarchive" = "Unarchive meeting";
 
 /* Footer */
 "footer.open_calendar" = "Open Calendar";

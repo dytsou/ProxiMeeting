@@ -77,6 +77,8 @@
 "settings.appearance.past_events" = "過去的會議";
 "settings.appearance.past_events.hide" = "隱藏";
 "settings.appearance.past_events.fade" = "淡化";
+"settings.appearance.display_days" = "顯示星期";
+"settings.appearance.display_days.help" = "未選取的星期不會出現在日期列與選單列。";
 "settings.appearance.preview_section" = "預覽";
 "settings.appearance.preview_menu_bar" = "選單列預覽";
 "settings.appearance.preview_list_row" = "會議列預覽";

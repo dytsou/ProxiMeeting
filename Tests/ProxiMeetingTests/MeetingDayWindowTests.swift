@@ -387,4 +387,122 @@ final class MeetingDayWindowTests: XCTestCase {
         XCTAssertTrue(MeetingDayWindow.isSameCalendarDay(today, fixedNow, calendar: calendar))
         XCTAssertFalse(MeetingDayWindow.isSameCalendarDay(future, fixedNow, calendar: calendar))
     }
+
+    // MARK: - Display weekdays
+
+    func testFilterEnabledDaysOmitsDisabledWeekday() {
+        // 2026-10-11 is Sunday; window Sun–Sat
+        let days = (0..<7).compactMap { calendar.date(byAdding: .day, value: $0, to: date(2026, 10, 11)) }
+        // Disable Wednesday (weekday 4)
+        let enabled: Set<Int> = [1, 2, 3, 5, 6, 7]
+        let filtered = MeetingDayWindow.filterEnabledDays(days, enabledWeekdays: enabled, calendar: calendar)
+        XCTAssertEqual(filtered.count, 6)
+        XCTAssertFalse(filtered.contains(where: { calendar.component(.weekday, from: $0) == 4 }))
+    }
+
+    func testNextEnabledDaySkipsDisabledSaturday() {
+        // Saturday 2026-10-10; Sunday enabled
+        let saturday = date(2026, 10, 10)
+        XCTAssertEqual(calendar.component(.weekday, from: saturday), 7)
+        let enabled: Set<Int> = [1, 2, 3, 4, 5, 6] // no Saturday
+        let next = MeetingDayWindow.nextEnabledDay(
+            from: saturday,
+            enabledWeekdays: enabled,
+            calendar: calendar
+        )
+        XCTAssertEqual(next, date(2026, 10, 11)) // Sunday
+    }
+
+    func testStepEnabledDaySkipsWeekends() {
+        let friday = date(2026, 10, 9)
+        XCTAssertEqual(calendar.component(.weekday, from: friday), 6)
+        let weekdaysOnly: Set<Int> = [2, 3, 4, 5, 6]
+        XCTAssertEqual(
+            MeetingDayWindow.stepEnabledDay(friday, by: 1, enabledWeekdays: weekdaysOnly, calendar: calendar),
+            date(2026, 10, 12) // Monday
+        )
+        let monday = date(2026, 10, 12)
+        XCTAssertEqual(
+            MeetingDayWindow.stepEnabledDay(monday, by: -1, enabledWeekdays: weekdaysOnly, calendar: calendar),
+            friday
+        )
+    }
+
+    func testEmptyEnabledWeekdaysYieldsNilNextAndTray() {
+        let day = date(2026, 10, 11)
+        XCTAssertNil(
+            MeetingDayWindow.nextEnabledDay(from: day, enabledWeekdays: [], calendar: calendar)
+        )
+        let events: [Date: [MeetingDayWindow.TimedEvent]] = [
+            day: [
+                .init(
+                    startDate: date(2026, 10, 11, 16, 0),
+                    endDate: date(2026, 10, 11, 17, 0),
+                    isAllDay: false
+                )
+            ]
+        ]
+        XCTAssertNil(
+            MeetingDayWindow.trayBrowseDay(
+                now: fixedNow,
+                meetingsByDay: events,
+                enabledWeekdays: [],
+                calendar: calendar
+            )
+        )
+    }
+
+    func testTrayBrowseDaySkipsDisabledSaturdayForMondayMeeting() {
+        // Now = Saturday 2026-10-10 15:00; Saturday disabled; Monday has a meeting
+        let saturday = date(2026, 10, 10, 15, 0)
+        let monday = date(2026, 10, 12)
+        let satMeeting = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 10, 16, 0),
+            endDate: date(2026, 10, 10, 17, 0),
+            isAllDay: false
+        )
+        let monMeeting = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 12, 10, 0),
+            endDate: date(2026, 10, 12, 11, 0),
+            isAllDay: false
+        )
+        let bucket: [Date: [MeetingDayWindow.TimedEvent]] = [
+            date(2026, 10, 10): [satMeeting],
+            monday: [monMeeting],
+        ]
+        let enabled: Set<Int> = [1, 2, 3, 4, 5, 6] // no Saturday
+        let trayDay = MeetingDayWindow.trayBrowseDay(
+            now: saturday,
+            meetingsByDay: bucket,
+            enabledWeekdays: enabled,
+            calendar: calendar
+        )
+        XCTAssertEqual(trayDay, monday)
+    }
+
+    func testTrayBrowseDayPrefersTodayWhenEnabled() {
+        let today = date(2026, 10, 11) // Sunday
+        let tomorrow = date(2026, 10, 12)
+        let todayMeeting = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 11, 16, 0),
+            endDate: date(2026, 10, 11, 17, 0),
+            isAllDay: false
+        )
+        let tomorrowMeeting = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 12, 9, 0),
+            endDate: date(2026, 10, 12, 10, 0),
+            isAllDay: false
+        )
+        let bucket: [Date: [MeetingDayWindow.TimedEvent]] = [
+            today: [todayMeeting],
+            tomorrow: [tomorrowMeeting],
+        ]
+        let trayDay = MeetingDayWindow.trayBrowseDay(
+            now: fixedNow,
+            meetingsByDay: bucket,
+            enabledWeekdays: MeetingDayWindow.allWeekdays,
+            calendar: calendar
+        )
+        XCTAssertEqual(trayDay, today)
+    }
 }

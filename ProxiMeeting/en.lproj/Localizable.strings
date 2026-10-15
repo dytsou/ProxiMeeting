@@ -77,6 +77,8 @@
 "settings.appearance.past_events" = "Past events";
 "settings.appearance.past_events.hide" = "Hide";
 "settings.appearance.past_events.fade" = "Fade";
+"settings.appearance.display_days" = "Display days";
+"settings.appearance.display_days.help" = "Unselected weekdays are hidden from the day strip and menu bar.";
 "settings.appearance.preview_section" = "Preview";
 "settings.appearance.preview_menu_bar" = "Menu bar preview";
 "settings.appearance.preview_list_row" = "Meeting row preview";

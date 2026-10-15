@@ -69,12 +69,17 @@ private enum AgentDebugNDJSON {
 @MainActor
 final class ApplicationSession {
     let calendarSelection: CalendarSelectionStore
+    let appearanceStore: AppearanceStore
     let calendarManager: CalendarManager
     private(set) var statusBarController: StatusBarController?
 
     init() {
         calendarSelection = CalendarSelectionStore()
-        calendarManager = CalendarManager(calendarSelection: calendarSelection)
+        appearanceStore = AppearanceStore()
+        calendarManager = CalendarManager(
+            calendarSelection: calendarSelection,
+            appearanceStore: appearanceStore
+        )
     }
 
     func installStatusBarIfNeeded() {
@@ -92,7 +97,11 @@ final class ApplicationSession {
             return
         }
         TrayOSLog.notice("installStatusBarIfNeeded: creating StatusBarController")
-        statusBarController = StatusBarController(manager: calendarManager, calendarSelection: calendarSelection)
+        statusBarController = StatusBarController(
+            manager: calendarManager,
+            calendarSelection: calendarSelection,
+            appearanceStore: appearanceStore
+        )
         AppDebug.log("Installed NSStatusItem (application session ready)")
     }
 }
@@ -273,7 +282,7 @@ class StatusBarController: NSObject {
     private var popover: NSPopover
     private let joinPreferenceStore = JoinPreferenceStore()
     private let calendarSelectionStore: CalendarSelectionStore
-    private let appearanceStore = AppearanceStore()
+    private let appearanceStore: AppearanceStore
     private let updateChecker = UpdateChecker()
     private var currentMeeting: Meeting?
     private var cancellable: AnyCancellable?
@@ -284,8 +293,13 @@ class StatusBarController: NSObject {
     private var upgradeRelaunchTimer: Timer?
     private var hasScheduledRelaunch = false
 
-    init(manager: CalendarManager, calendarSelection: CalendarSelectionStore) {
+    init(
+        manager: CalendarManager,
+        calendarSelection: CalendarSelectionStore,
+        appearanceStore: AppearanceStore
+    ) {
         calendarSelectionStore = calendarSelection
+        self.appearanceStore = appearanceStore
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.isVisible = true
 

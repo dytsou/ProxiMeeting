@@ -68,6 +68,7 @@ class CalendarManager: ObservableObject {
 
     private let eventStore = EKEventStore()
     private let calendarSelection: CalendarSelectionStore
+    private let appearanceStore: AppearanceStore
     private let defaults = UserDefaults.standard
 
     @Published var nextMeeting: Meeting?
@@ -83,13 +84,15 @@ class CalendarManager: ObservableObject {
     private var timer: Timer?
     private var notificationObserver: NSObjectProtocol?
     private var selectionCancellable: AnyCancellable?
+    private var appearanceCancellable: AnyCancellable?
     private var fetchTask: Task<Void, Never>?
     private var lastFetchAt: Date?
     /// Bounds stamped with the last fetch that passed the coalesce gate (skip coalesce when window moved).
     private var lastFetchedBounds: MeetingDayWindow.Bounds?
 
-    init(calendarSelection: CalendarSelectionStore) {
+    init(calendarSelection: CalendarSelectionStore, appearanceStore: AppearanceStore) {
         self.calendarSelection = calendarSelection
+        self.appearanceStore = appearanceStore
         self.windowBounds = MeetingDayWindow.defaultBounds(around: Date())
         self.archivedMeetingIDs = Set(defaults.stringArray(forKey: Self.archivedIDsKey) ?? [])
         checkAndFetch()
@@ -98,6 +101,11 @@ class CalendarManager: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.requestFetch(debounceSeconds: 0.25)
+            }
+        appearanceCancellable = appearanceStore.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.publishTrayMeetings()
             }
     }
 
@@ -120,6 +128,7 @@ class CalendarManager: ObservableObject {
         timer?.invalidate()
         fetchTask?.cancel()
         selectionCancellable?.cancel()
+        appearanceCancellable?.cancel()
         if let observer = notificationObserver {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -330,16 +339,47 @@ class CalendarManager: ObservableObject {
         publishTrayMeetings(now: now, calendar: calendar)
     }
 
-    /// Menu bar / tray: never show ended or archived meetings.
+    /// Menu bar / tray: never show ended or archived meetings; skip disabled weekdays.
     private func publishTrayMeetings(now: Date = Date(), calendar: Calendar = .current) {
-        let todayMeetings = meetings(
-            for: MeetingDayWindow.dayKey(now, calendar: calendar),
+        let enabled = appearanceStore.enabledWeekdays
+        var timedByDay: [Date: [MeetingDayWindow.TimedEvent]] = [:]
+        for (key, dayMeetings) in meetingsByDay {
+            let live = dayMeetings.filter { !archivedMeetingIDs.contains($0.id) }
+            timedByDay[key] = live.map {
+                MeetingDayWindow.TimedEvent(startDate: $0.startDate, endDate: $0.endDate, isAllDay: false)
+            }
+        }
+
+        guard let trayDay = MeetingDayWindow.trayBrowseDay(
             now: now,
-            includeEnded: false,
-            includeArchived: false
-        )
-        upcomingMeetings = todayMeetings
-        nextMeeting = todayMeetings.first
+            meetingsByDay: timedByDay,
+            enabledWeekdays: enabled,
+            calendar: calendar
+        ) else {
+            upcomingMeetings = []
+            nextMeeting = nil
+            return
+        }
+
+        let today = MeetingDayWindow.dayKey(now, calendar: calendar)
+        let trayMeetings: [Meeting]
+        if trayDay == today {
+            trayMeetings = meetings(
+                for: today,
+                now: now,
+                includeEnded: false,
+                includeArchived: false
+            )
+        } else {
+            trayMeetings = meetings(
+                for: trayDay,
+                now: now,
+                includeEnded: false,
+                includeArchived: false
+            ).filter { $0.endDate > now }
+        }
+        upcomingMeetings = trayMeetings
+        nextMeeting = trayMeetings.first
     }
 
     private func pruneArchivedIDs(keeping bucket: [Date: [Meeting]]) {

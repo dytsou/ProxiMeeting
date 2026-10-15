@@ -302,6 +302,107 @@ public enum MeetingDayWindow {
         return calendar.date(byAdding: .day, value: offset, to: start) ?? start
     }
 
+    // MARK: - Display weekdays
+
+    /// Foundation `Calendar` weekday values (`1...7`, Sunday = 1).
+    public static let allWeekdays: Set<Int> = [1, 2, 3, 4, 5, 6, 7]
+
+    public static func isWeekdayEnabled(
+        _ day: Date,
+        enabledWeekdays: Set<Int>,
+        calendar: Calendar = .current
+    ) -> Bool {
+        let weekday = calendar.component(.weekday, from: startOfDay(day, calendar: calendar))
+        return enabledWeekdays.contains(weekday)
+    }
+
+    public static func filterEnabledDays(
+        _ days: [Date],
+        enabledWeekdays: Set<Int>,
+        calendar: Calendar = .current
+    ) -> [Date] {
+        days.filter { isWeekdayEnabled($0, enabledWeekdays: enabledWeekdays, calendar: calendar) }
+    }
+
+    /// Soonest day on or after `from` whose weekday is enabled.
+    public static func nextEnabledDay(
+        from day: Date,
+        enabledWeekdays: Set<Int>,
+        calendar: Calendar = .current,
+        maxSearchDays: Int = 14
+    ) -> Date? {
+        guard !enabledWeekdays.isEmpty else { return nil }
+        var cursor = startOfDay(day, calendar: calendar)
+        for _ in 0..<maxSearchDays {
+            if isWeekdayEnabled(cursor, enabledWeekdays: enabledWeekdays, calendar: calendar) {
+                return cursor
+            }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { return nil }
+            cursor = next
+        }
+        return nil
+    }
+
+    /// Steps by ±1 among enabled weekdays, skipping disabled civil days.
+    public static func stepEnabledDay(
+        _ day: Date,
+        by offset: Int,
+        enabledWeekdays: Set<Int>,
+        calendar: Calendar = .current,
+        maxSearchDays: Int = 28
+    ) -> Date {
+        let start = startOfDay(day, calendar: calendar)
+        guard offset != 0, !enabledWeekdays.isEmpty else { return start }
+        let direction = offset > 0 ? 1 : -1
+        var remaining = abs(offset)
+        var cursor = start
+        var searched = 0
+        while remaining > 0, searched < maxSearchDays {
+            guard let next = calendar.date(byAdding: .day, value: direction, to: cursor) else { break }
+            cursor = next
+            searched += 1
+            if isWeekdayEnabled(cursor, enabledWeekdays: enabledWeekdays, calendar: calendar) {
+                remaining -= 1
+            }
+        }
+        return cursor
+    }
+
+    /// Day key whose remaining meetings should drive the menu-bar tray, or `nil` if none.
+    /// Prefers today's remaining/ongoing list when today is enabled; otherwise looks ahead.
+    public static func trayBrowseDay(
+        now: Date,
+        meetingsByDay: [Date: [TimedEvent]],
+        enabledWeekdays: Set<Int>,
+        calendar: Calendar = .current
+    ) -> Date? {
+        guard !enabledWeekdays.isEmpty else { return nil }
+        let today = startOfDay(now, calendar: calendar)
+        let allEvents = meetingsByDay.values.flatMap { $0 }
+
+        if isWeekdayEnabled(today, enabledWeekdays: enabledWeekdays, calendar: calendar) {
+            let todayList = filterEvents(
+                allEvents,
+                forBrowseDay: today,
+                now: now,
+                includeEnded: false,
+                calendar: calendar
+            )
+            if !todayList.isEmpty { return today }
+        }
+
+        let futureKeys = meetingsByDay.keys
+            .map { startOfDay($0, calendar: calendar) }
+            .filter { $0 > today }
+            .filter { isWeekdayEnabled($0, enabledWeekdays: enabledWeekdays, calendar: calendar) }
+            .sorted()
+        for key in futureKeys {
+            let remaining = (meetingsByDay[key] ?? []).filter { !$0.isAllDay && $0.endDate > now }
+            if !remaining.isEmpty { return key }
+        }
+        return nil
+    }
+
     /// Accessibility value: formatted date plus optional meeting count.
     public static func accessibilityDayValue(
         day: Date,

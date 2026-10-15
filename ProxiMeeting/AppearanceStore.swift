@@ -1,5 +1,8 @@
 import Combine
 import Foundation
+#if canImport(ProxiMeetingCore)
+import ProxiMeetingCore
+#endif
 
 /// How already-ended meetings appear on today's browse list.
 enum PastEventsDisplay: String, CaseIterable, Hashable {
@@ -12,6 +15,32 @@ enum PastEventsDisplay: String, CaseIterable, Hashable {
 @MainActor
 final class AppearanceStore: ObservableObject {
     private let defaults = UserDefaults.standard
+    private static let enabledWeekdaysKey = "appearance.enabledWeekdays"
+
+    /// Foundation `Calendar` weekday values (`1...7`, Sunday = 1). Missing key → all seven.
+    var enabledWeekdays: Set<Int> {
+        get {
+            guard let stored = defaults.array(forKey: Self.enabledWeekdaysKey) as? [Int] else {
+                return MeetingDayWindow.allWeekdays
+            }
+            return Set(stored.filter { (1...7).contains($0) })
+        }
+        set {
+            defaults.set(Array(newValue).sorted(), forKey: Self.enabledWeekdaysKey)
+            objectWillChange.send()
+        }
+    }
+
+    func setWeekday(_ weekday: Int, enabled: Bool) {
+        guard (1...7).contains(weekday) else { return }
+        var next = enabledWeekdays
+        if enabled {
+            next.insert(weekday)
+        } else {
+            next.remove(weekday)
+        }
+        enabledWeekdays = next
+    }
 
     /// Today's ended meetings in the popover list: hide (default) or fade.
     var pastEventsDisplay: PastEventsDisplay {

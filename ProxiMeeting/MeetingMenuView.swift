@@ -52,7 +52,7 @@ struct MeetingMenuView: View {
                 showJoinSettings: $showJoinSettings,
                 showDatePicker: $showDatePicker,
                 onSelectBrowseDay: selectBrowseDay,
-                onReturnToToday: { selectBrowseDay(today) }
+                onReturnToToday: resetBrowseToToday
             )
             Divider()
             DayChipStrip(
@@ -92,6 +92,11 @@ struct MeetingMenuView: View {
         }
         .onChange(of: showJoinSettings) { _ in updateArrowCaptureGate() }
         .onChange(of: showDatePicker) { _ in updateArrowCaptureGate() }
+        .onChange(of: appearanceStore.enabledWeekdays) { enabled in
+            guard tracksCivilToday else { return }
+            guard !MeetingDayWindow.isWeekdayEnabled(browseDay, enabledWeekdays: enabled) else { return }
+            landOnPreferredBrowseDay(preferringToday: true)
+        }
         .onDisappear {
             BrowseDayKeyboardGate.allowsArrowCapture = false
             removeKeyMonitor()
@@ -107,10 +112,9 @@ struct MeetingMenuView: View {
 
     private func resetBrowseToToday() {
         showDatePicker = false
-        let day = MeetingDayWindow.startOfDay(Date())
-        browseDay = day
         tracksCivilToday = true
         manager.resetWindowAroundToday()
+        landOnPreferredBrowseDay(preferringToday: true)
         updateArrowCaptureGate()
     }
 
@@ -129,13 +133,31 @@ struct MeetingMenuView: View {
         guard tracksCivilToday else { return }
         let day = MeetingDayWindow.startOfDay(Date())
         guard !MeetingDayWindow.isSameCalendarDay(browseDay, day) else { return }
-        browseDay = day
         manager.resetWindowAroundToday()
+        landOnPreferredBrowseDay(preferringToday: true)
     }
 
     private func stepBrowseDay(by offset: Int) {
-        let next = MeetingDayWindow.stepDay(browseDay, by: offset)
+        let next = MeetingDayWindow.stepEnabledDay(
+            browseDay,
+            by: offset,
+            enabledWeekdays: appearanceStore.enabledWeekdays
+        )
         selectBrowseDay(next)
+    }
+
+    /// Lands on today when enabled; otherwise the next enabled weekday (R5). Empty set keeps today with an empty strip.
+    private func landOnPreferredBrowseDay(preferringToday: Bool) {
+        let today = MeetingDayWindow.startOfDay(Date())
+        let enabled = appearanceStore.enabledWeekdays
+        if preferringToday,
+           let landed = MeetingDayWindow.nextEnabledDay(from: today, enabledWeekdays: enabled) {
+            browseDay = landed
+            manager.ensureWindow(for: landed)
+        } else {
+            browseDay = today
+        }
+        listScrollEpoch += 1
     }
 
     private func updateArrowCaptureGate() {
@@ -258,16 +280,24 @@ private struct HeaderView: View {
 
 private struct DayChipStrip: View {
     @EnvironmentObject var manager: CalendarManager
+    @EnvironmentObject var appearanceStore: AppearanceStore
     let browseDay: Date
     let onSelect: (Date) -> Void
 
     private var today: Date { MeetingDayWindow.startOfDay(Date()) }
 
+    private var visibleDays: [Date] {
+        MeetingDayWindow.filterEnabledDays(
+            manager.daysInWindow,
+            enabledWeekdays: appearanceStore.enabledWeekdays
+        )
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(manager.daysInWindow, id: \.self) { day in
+                    ForEach(visibleDays, id: \.self) { day in
                         DayChip(
                             day: day,
                             isToday: MeetingDayWindow.isSameCalendarDay(day, today),
@@ -300,9 +330,21 @@ private struct DayChipStrip: View {
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment:
-                onSelect(MeetingDayWindow.stepDay(browseDay, by: 1))
+                onSelect(
+                    MeetingDayWindow.stepEnabledDay(
+                        browseDay,
+                        by: 1,
+                        enabledWeekdays: appearanceStore.enabledWeekdays
+                    )
+                )
             case .decrement:
-                onSelect(MeetingDayWindow.stepDay(browseDay, by: -1))
+                onSelect(
+                    MeetingDayWindow.stepEnabledDay(
+                        browseDay,
+                        by: -1,
+                        enabledWeekdays: appearanceStore.enabledWeekdays
+                    )
+                )
             @unknown default:
                 break
             }
@@ -1125,7 +1167,7 @@ private struct JoinSettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 380, height: 320)
+        .frame(width: 380, height: 380)
         .padding(.bottom, 8)
         .background {
             PopoverMaterialBackgroundView()
@@ -1265,6 +1307,18 @@ private struct AppearanceSettingsPane: View {
     @State private var isOptionPressed = false
     @State private var localFlagsMonitor: Any?
     @State private var globalFlagsMonitor: Any?
+
+    /// Weekday ints `1...7` starting at `Calendar.current.firstWeekday`.
+    private static var weekdayToggleOrder: [Int] {
+        let first = Calendar.current.firstWeekday
+        return (0..<7).map { ((first - 1 + $0) % 7) + 1 }
+    }
+
+    private static func shortWeekdaySymbol(for weekday: Int) -> String {
+        let symbols = Calendar.current.shortWeekdaySymbols
+        guard weekday >= 1, weekday <= symbols.count else { return "?" }
+        return symbols[weekday - 1]
+    }
 
     private func updateOptionPressed(from flags: NSEvent.ModifierFlags) {
         let pressed = flags.contains(.option)
@@ -1408,6 +1462,28 @@ private struct AppearanceSettingsPane: View {
                     .labelsHidden()
                     .frame(width: 160)
                     .pickerStyle(.segmented)
+                }
+                .padding(.vertical, 2)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("settings.appearance.display_days")
+                    HStack(spacing: 4) {
+                        ForEach(Self.weekdayToggleOrder, id: \.self) { weekday in
+                            Toggle(isOn: Binding(
+                                get: { appearanceStore.enabledWeekdays.contains(weekday) },
+                                set: { appearanceStore.setWeekday(weekday, enabled: $0) }
+                            )) {
+                                Text(Self.shortWeekdaySymbol(for: weekday))
+                                    .font(.caption)
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .toggleStyle(.button)
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
+                    Text("settings.appearance.display_days.help")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 2)
             } header: {

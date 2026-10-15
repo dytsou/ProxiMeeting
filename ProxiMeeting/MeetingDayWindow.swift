@@ -191,6 +191,26 @@ public enum MeetingDayWindow {
         return min(meetingCount, 3)
     }
 
+    /// Meetings that should light density dots for `day`: not finished.
+    /// Past days → 0; today → remaining/ongoing; future → full-day timed count.
+    public static func activeDensityMeetingCount(
+        in events: [TimedEvent],
+        forDay day: Date,
+        now: Date,
+        calendar: Calendar = .current
+    ) -> Int {
+        let dayKey = startOfDay(day, calendar: calendar)
+        let today = startOfDay(now, calendar: calendar)
+        if dayKey < today { return 0 }
+        return filterEvents(
+            events,
+            forBrowseDay: dayKey,
+            now: now,
+            includeEnded: false,
+            calendar: calendar
+        ).count
+    }
+
     // MARK: - Filtering
 
     public static func isSameCalendarDay(_ a: Date, _ b: Date, calendar: Calendar = .current) -> Bool {

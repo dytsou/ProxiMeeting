@@ -126,6 +126,98 @@ final class MeetingDayWindowTests: XCTestCase {
         XCTAssertEqual(MeetingDayWindow.densityDotCount(meetingCount: 10), 3)
     }
 
+    func testActiveDensityCountExcludesFinishedAndPastDays() {
+        let today = date(2026, 10, 11)
+        let yesterday = date(2026, 10, 10)
+        let tomorrow = date(2026, 10, 12)
+        let ended = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 11, 9, 0),
+            endDate: date(2026, 10, 11, 10, 0),
+            isAllDay: false
+        )
+        let remaining = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 11, 16, 0),
+            endDate: date(2026, 10, 11, 17, 0),
+            isAllDay: false
+        )
+        let ongoing = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 11, 14, 0),
+            endDate: date(2026, 10, 11, 18, 0),
+            isAllDay: false
+        )
+        let yesterdayFinished = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 10, 9, 0),
+            endDate: date(2026, 10, 10, 10, 0),
+            isAllDay: false
+        )
+        let tomorrowTimed = MeetingDayWindow.TimedEvent(
+            startDate: date(2026, 10, 12, 9, 0),
+            endDate: date(2026, 10, 12, 10, 0),
+            isAllDay: false
+        )
+        let events = [ended, remaining, ongoing, yesterdayFinished, tomorrowTimed]
+
+        XCTAssertEqual(
+            MeetingDayWindow.activeDensityMeetingCount(
+                in: events,
+                forDay: today,
+                now: fixedNow,
+                calendar: calendar
+            ),
+            2,
+            "today: only ongoing + remaining"
+        )
+        XCTAssertEqual(
+            MeetingDayWindow.densityDotCount(
+                meetingCount: MeetingDayWindow.activeDensityMeetingCount(
+                    in: events,
+                    forDay: today,
+                    now: fixedNow,
+                    calendar: calendar
+                )
+            ),
+            2
+        )
+        XCTAssertEqual(
+            MeetingDayWindow.activeDensityMeetingCount(
+                in: events,
+                forDay: yesterday,
+                now: fixedNow,
+                calendar: calendar
+            ),
+            0,
+            "past days do not light density dots"
+        )
+        XCTAssertEqual(
+            MeetingDayWindow.activeDensityMeetingCount(
+                in: events,
+                forDay: tomorrow,
+                now: fixedNow,
+                calendar: calendar
+            ),
+            1
+        )
+    }
+
+    func testActiveDensityCountCapsAtThreeDots() {
+        let day = date(2026, 10, 12)
+        let events = (0..<5).map { i in
+            MeetingDayWindow.TimedEvent(
+                startDate: date(2026, 10, 12, 9 + i, 0),
+                endDate: date(2026, 10, 12, 10 + i, 0),
+                isAllDay: false
+            )
+        }
+        let count = MeetingDayWindow.activeDensityMeetingCount(
+            in: events,
+            forDay: day,
+            now: fixedNow,
+            calendar: calendar
+        )
+        XCTAssertEqual(count, 5)
+        XCTAssertEqual(MeetingDayWindow.densityDotCount(meetingCount: count), 3)
+    }
+
     // MARK: - Filters
 
     func testTodayFilterKeepsOngoingAndExcludesEnded() {

@@ -234,10 +234,13 @@ class CalendarManager: ObservableObject {
         MeetingDayWindow.daysInWindow(bounds: windowBounds)
     }
 
-    /// Non-all-day meeting count for density dots on a day key.
-    func meetingCount(for day: Date) -> Int {
-        let key = MeetingDayWindow.dayKey(day)
-        return meetingsByDay[key]?.count ?? 0
+    /// Active (not finished, not archived) meeting count for density dots on a day key.
+    func meetingCount(for day: Date, now: Date = Date()) -> Int {
+        let calendar = Calendar.current
+        let dayKey = MeetingDayWindow.dayKey(day, calendar: calendar)
+        let today = MeetingDayWindow.dayKey(now, calendar: calendar)
+        if dayKey < today { return 0 }
+        return meetings(for: day, now: now, includeEnded: false, includeArchived: false).count
     }
 
     /// Meetings for the browse list: today uses remaining/ongoing rules; other days are full-day.

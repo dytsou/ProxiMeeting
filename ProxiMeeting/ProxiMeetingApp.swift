@@ -521,13 +521,21 @@ class StatusBarController: NSObject {
         hasScheduledRelaunch = true
         AppDebug.log("Detected on-disk upgrade: running=\(runningRaw), onDisk=\(onDiskRaw). Relaunching.")
 
+        // Must spawn a new instance: default openApplication reuses this process, then
+        // terminate would leave the menu bar empty after a brew replace-without-quit.
         let bundleURL = Bundle.main.bundleURL
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
-        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { _, _ in }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            NSApplication.shared.terminate(nil)
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: config) { [weak self] _, error in
+            Task { @MainActor in
+                if let error {
+                    AppDebug.log("On-disk upgrade relaunch failed: \(error.localizedDescription)")
+                    self?.hasScheduledRelaunch = false
+                    return
+                }
+                NSApplication.shared.terminate(nil)
+            }
         }
     }
 

@@ -84,7 +84,7 @@ brew install --cask --force dytsou/proximeeting/proximeeting
 brew trust --cask dytsou/proximeeting/proximeeting
 ```
 
-安裝完成後，請關閉並重新開啟 ProxiMeeting。如果 Homebrew 顯示 cask 已安裝，但 `/Applications/ProxiMeeting.app` 不存在，請修復 cask 產物：
+若 ProxiMeeting 正在執行，`brew upgrade --cask proximeeting` 會先退出再開啟新版本（cask 的 `uninstall quit:`）。若要略過此行為，可使用 `brew upgrade --no-quit`。如果 Homebrew 顯示 cask 已安裝，但 `/Applications/ProxiMeeting.app` 不存在，請修復 cask 產物：
 
 ```bash
 brew reinstall --cask --force dytsou/proximeeting/proximeeting

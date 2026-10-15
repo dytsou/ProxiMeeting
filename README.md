@@ -84,7 +84,7 @@ If Homebrew reports that the cask comes from an untrusted tap, trust only this c
 brew trust --cask dytsou/proximeeting/proximeeting
 ```
 
-After installation, quit and reopen ProxiMeeting. If Homebrew reports the cask as installed but `/Applications/ProxiMeeting.app` is missing, repair the cask artifact with:
+If ProxiMeeting is already running, `brew upgrade --cask proximeeting` quits and reopens it (cask `uninstall quit:`). Use `brew upgrade --no-quit` to skip that. If Homebrew reports the cask as installed but `/Applications/ProxiMeeting.app` is missing, repair the cask artifact with:
 
 ```bash
 brew reinstall --cask --force dytsou/proximeeting/proximeeting

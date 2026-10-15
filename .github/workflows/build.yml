@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+# Avoid two main pushes racing on the same release tag / Homebrew tap update.
+concurrency:
+  group: build-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: macos-latest
@@ -160,4 +165,6 @@ jobs:
             exit 0
           fi
           git commit -m "chore: bump ProxiMeeting cask to ${VERSION}"
+          # Rebase onto remote in case another push landed (e.g. parallel main builds).
+          git pull --rebase origin main
           git push origin HEAD:main
